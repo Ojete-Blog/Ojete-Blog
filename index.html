@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#05060A" />
-  <meta name="description" content="Panel estilo X: tendencias en tiempo real (open data) + timeline de @GlobalEye_TV. 100% GitHub Pages." />
+  <meta name="theme-color" content="#07080C" />
+  <meta name="description" content="Panel estilo X: tendencias en tiempo real (open data) + timeline embebido de @GlobalEye_TV. 100% GitHub Pages." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
 
   <title>GlobalEye • Trends</title>
@@ -14,23 +14,19 @@
   <link rel="preconnect" href="https://platform.twitter.com" crossorigin />
   <link rel="dns-prefetch" href="//platform.twitter.com" />
 
-  <!-- Manifest + CSS -->
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./styles.css" />
-
-  <!-- Icons (prefer PNG, fallback JPG) -->
-  <link rel="icon" type="image/png" href="./logo_ojo_png.png" />
-  <link rel="icon" type="image/jpeg" href="./logo_ojo.jpg" />
+  <!-- Icons -->
+  <link rel="icon" href="./logo_ojo_favicon.png" />
   <link rel="apple-touch-icon" href="./logo_ojo_png.png" />
 
-  <!-- App -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
   <script defer src="./app.js"></script>
 </head>
 
 <body>
   <noscript>
     <div class="noscript">
-      Necesitas JavaScript activado para ver tendencias y el timeline.
+      Necesitas JavaScript activado para ver tendencias y el timeline embebido.
     </div>
   </noscript>
 
@@ -50,7 +46,7 @@
         <img
           class="heroLogo"
           src="./logo_ojo_png.png"
-          alt="GlobalEye logo"
+          alt="Logo"
           loading="eager"
           decoding="async"
           onerror="this.onerror=null;this.src='./logo_ojo.jpg';"
@@ -62,7 +58,8 @@
       </div>
 
       <div class="heroCtas">
-        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer noopener">IR A X</a>
+        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">IR A X</a>
+        <a class="cta ctaGhost" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">Donar (Ko-fi)</a>
       </div>
     </div>
   </header>
@@ -88,27 +85,27 @@
       </div>
 
       <nav class="nav" aria-label="Navegación">
-        <button class="navItem isActive" data-route="trends" aria-current="page" type="button">
+        <button class="navItem isActive" type="button" data-route="trends" aria-current="page">
           <span class="ico" aria-hidden="true">⌁</span>
           <span>Tendencias</span>
         </button>
 
         <button class="navItem" id="btnTicker" type="button">
           <span class="ico" aria-hidden="true">〰</span>
-          <span>Ticker</span>
+          <span>Modo ticker</span>
         </button>
 
         <button class="navItem" id="btnConfig" type="button">
-          <span class="ico" aria-hidden="true">⚙</span>
-          <span>Config</span>
+          <span class="ico" aria-hidden="true">⚙️</span>
+          <span>Configuración</span>
         </button>
 
-        <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer noopener">
+        <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
           <span class="ico" aria-hidden="true">👤</span>
           <span>Perfil en X</span>
         </a>
 
-        <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer noopener">
+        <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer">
           <span class="ico" aria-hidden="true">🔎</span>
           <span>Explorar en X</span>
         </a>
@@ -116,20 +113,23 @@
 
       <div class="leftFooter">
         <div class="pill">
-          <span class="dot"></span>
+          <span class="dot" aria-hidden="true"></span>
           <span id="netStatus">Conectando…</span>
         </div>
 
-        <button id="btnRefresh" class="btn btnPrimary" type="button">
-          Actualizar
-        </button>
+        <button id="btnRefresh" class="btn btnPrimary" type="button">Actualizar</button>
 
-        <button id="btnCompact" class="btn btnGhost" aria-pressed="false" type="button">
+        <button id="btnCompact" class="btn btnGhost" type="button" aria-pressed="false">
           Modo compacto
         </button>
 
+        <!-- Donativos (SOLO 1 aquí + 1 en el hero) -->
+        <a class="btn btnKofi" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
+          ☕ Donar en Ko-fi
+        </a>
+
         <div class="hint">
-          * “Tendencias” aquí = señales en tiempo real (open data) + botón “Ver en X”.
+          Open data + acceso directo a X con 1 click.
         </div>
       </div>
     </aside>
@@ -142,16 +142,9 @@
           <div class="subtitle" id="lastUpdated">—</div>
         </div>
 
-        <div class="searchWrap">
+        <div class="searchWrap" role="search">
           <span class="searchIco" aria-hidden="true">🔎</span>
-          <input
-            id="q"
-            class="search"
-            type="search"
-            placeholder="Filtra tendencias (ej: #ENVIVO, trump, madrid...)"
-            autocomplete="off"
-            spellcheck="false"
-          />
+          <input id="q" class="search" type="search" placeholder="Buscar tendencia…" autocomplete="off" />
         </div>
       </header>
 
@@ -197,10 +190,7 @@
 
         <div id="list" class="trendList" aria-live="polite"></div>
 
-        <div id="empty" class="empty hidden">
-          No hay resultados para ese filtro.
-        </div>
-
+        <div id="empty" class="empty hidden">No hay resultados para ese filtro.</div>
         <div id="err" class="errorBox hidden"></div>
       </section>
 
@@ -209,8 +199,8 @@
           <div class="panelTitle">Cómo funciona</div>
         </div>
         <div class="miniText">
-          Este panel calcula tendencias con titulares recientes (open data) y te da acceso directo a la búsqueda en X.
-          El timeline de la derecha es tu feed real embebido.
+          Este panel calcula “tendencias” a partir de titulares recientes (open data) y te da acceso directo a la búsqueda en X.
+          El timeline de la derecha es el widget oficial embebido.
         </div>
       </section>
     </main>
@@ -219,14 +209,15 @@
     <aside class="right">
       <div class="rightCard">
         <div class="rightTitle">Tu timeline</div>
-        <div class="rightSub">Posts públicos de @GlobalEye_TV</div>
+        <div class="rightSub">Posts públicos de @GlobalEye_TV (widget oficial).</div>
 
-        <div class="timelineWrap">
+        <div class="timelineWrap" id="timelineWrap">
+          <!-- OJO: usar twitter.com mejora compatibilidad del widget -->
           <a class="twitter-timeline"
-             href="https://x.com/GlobalEye_TV"
+             href="https://twitter.com/GlobalEye_TV"
              data-theme="dark"
              data-chrome="noheader nofooter noborders transparent"
-             data-tweet-limit="20">
+             data-tweet-limit="10">
             Posts by @GlobalEye_TV
           </a>
         </div>
@@ -234,30 +225,11 @@
 
       <div class="rightCard">
         <div class="rightTitle">Accesos rápidos</div>
+        <div class="rightSub">Búsquedas directas en X.</div>
         <div class="quick">
-          <a class="chip" target="_blank" rel="noreferrer noopener" href="https://x.com/search?q=%23ENVIVO">#ENVIVO</a>
-          <a class="chip" target="_blank" rel="noreferrer noopener" href="https://x.com/search?q=%23ULTIMAHORA">#ULTIMAHORA</a>
-          <a class="chip" target="_blank" rel="noreferrer noopener" href="https://x.com/search?q=%23BREAKING">#BREAKING</a>
-        </div>
-      </div>
-
-      <!-- ✅ KO-FI SOLO AQUÍ (1 vez) -->
-      <div class="rightCard">
-        <div class="rightTitle">Donativos</div>
-        <div class="rightSub">
-          Si te mola el proyecto, puedes apoyar a GlobalEye con un café ☕
-        </div>
-        <a class="kofiCard" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer noopener">
-          <span class="kofiDot" aria-hidden="true">☕</span>
-          <span>ko-fi.com/global_eye</span>
-          <span class="kofiGo" aria-hidden="true">→</span>
-        </a>
-      </div>
-
-      <div class="rightCard subtle">
-        <div class="rightTitle">Nota</div>
-        <div class="rightSub">
-          El timeline embebido no “hace polling” infinito; se refresca al recargar.
+          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23ENVIVO">#ENVIVO</a>
+          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23ULTIMAHORA">#ULTIMAHORA</a>
+          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23BREAKING">#BREAKING</a>
         </div>
       </div>
     </aside>
@@ -328,18 +300,7 @@
     </div>
   </div>
 
-  <!-- X widgets loader (oficial) -->
-  <script>
-    window.twttr = (function(d, s, id) {
-      var js, fjs = d.getElementsByTagName(s)[0], t = window.twttr || {};
-      if (d.getElementById(id)) return t;
-      js = d.createElement(s); js.id = id;
-      js.src = "https://platform.twitter.com/widgets.js";
-      fjs.parentNode.insertBefore(js, fjs);
-      t._e = [];
-      t.ready = function(f) { t._e.push(f); };
-      return t;
-    }(document, "script", "twitter-wjs"));
-  </script>
+  <!-- Widgets oficial (async) -->
+  <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 </body>
 </html>

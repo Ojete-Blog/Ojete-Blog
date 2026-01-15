@@ -1,20 +1,13 @@
 {
   "name": "GlobalEye Trends",
   "short_name": "GE Trends",
-  "lang": "es",
-  "start_url": "./?source=pwa",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#05060A",
-  "theme_color": "#05060A",
-  "description": "Panel estilo X: tendencias en tiempo real (open data) + timeline de @GlobalEye_TV. 100% GitHub Pages.",
+  "background_color": "#07080C",
+  "theme_color": "#07080C",
+  "description": "Panel estilo X: tendencias en tiempo real (open data) + timeline embebido de @GlobalEye_TV. 100% GitHub Pages.",
   "icons": [
-    {
-      "src": "./logo_ojo_favicon.png",
-      "sizes": "64x64",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "./logo_ojo_png.png",
       "sizes": "192x192",
@@ -25,7 +18,13 @@
       "src": "./logo_ojo_png.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./logo_ojo_png.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

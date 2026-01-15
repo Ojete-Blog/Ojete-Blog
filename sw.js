@@ -1,9 +1,13 @@
-/* sw.js — GlobalEye Trends — cache v3 (GitHub Pages friendly + SKIP_WAITING) */
+/* sw.js — GlobalEye Trends — cache v3 (GitHub Pages friendly + update real)
+   ✅ Network-first para navegación (HTML)
+   ✅ Stale-while-revalidate para assets SAME-ORIGIN
+   ✅ No cachea GDELT ni cross-origin
+   ✅ Soporta SKIP_WAITING + CLEAR_CACHES
+*/
+
 "use strict";
 
 const CACHE = "ge-trends-v3";
-
-/** Core (sin query) */
 const CORE = [
   "./",
   "./index.html",
@@ -12,25 +16,26 @@ const CORE = [
   "./manifest.webmanifest",
   "./logo_ojo.jpg",
   "./logo_ojo_png.png",
+  "./logo_ojo_favicon.png",
   "./logo_ojo_gif.gif",
   "./banner_ojo.jpg"
 ];
 
-function stripQuery(urlStr){
-  try{
-    const u = new URL(urlStr);
-    u.search = "";
-    u.hash = "";
-    return u.toString();
-  }catch{
-    return urlStr;
-  }
-}
-
 self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    await c.addAll(CORE);
+
+    // Precarga robusta (evita quedarte con archivos viejos)
+    await Promise.all(CORE.map(async (url) => {
+      try{
+        const req = new Request(url, { cache: "reload" });
+        const res = await fetch(req);
+        if (res.ok) await c.put(req, res.clone());
+      }catch{
+        // si algún asset falla, no rompe la instalación
+      }
+    }));
+
     self.skipWaiting();
   })());
 });
@@ -39,17 +44,16 @@ self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
     await Promise.all(keys.map(k => (k !== CACHE) ? caches.delete(k) : null));
-    self.clients.claim();
+    await self.clients.claim();
   })());
 });
 
-/** ✅ Permite a app.js forzar “apply update” */
 self.addEventListener("message", (e) => {
-  const type = e?.data?.type || e?.data;
-  if (type === "SKIP_WAITING") {
+  const type = e?.data?.type;
+  if (type === "SKIP_WAITING"){
     self.skipWaiting();
   }
-  if (type === "CLEAR_CACHES") {
+  if (type === "CLEAR_CACHES"){
     e.waitUntil((async () => {
       const keys = await caches.keys();
       await Promise.all(keys.map(k => caches.delete(k)));
@@ -59,39 +63,33 @@ self.addEventListener("message", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
+  if (req.method !== "GET") return;
+
   const url = new URL(req.url);
 
-  // No tocar cross-origin (X widgets, etc.)
-  if (url.origin !== self.location.origin){
-    // pero GDELT siempre live
-    if (url.hostname.includes("gdeltproject.org")) {
-      e.respondWith(fetch(req));
-      return;
-    }
+  // Nunca cachear la API (siempre live)
+  if (url.hostname.includes("gdeltproject.org") || url.hostname.includes("api.gdeltproject.org")){
     e.respondWith(fetch(req));
     return;
   }
 
-  // Nunca cachear llamadas a GDELT si están en same-origin (normalmente no lo están)
-  if (url.hostname.includes("gdeltproject.org")){
+  // No cachear cross-origin (ej: platform.twitter.com)
+  const sameOrigin = (url.origin === self.location.origin);
+  if (!sameOrigin){
     e.respondWith(fetch(req));
     return;
   }
 
-  // Normaliza clave (quita ?v= / ?cb= etc)
-  const keyUrl = stripQuery(req.url);
-  const keyReq = new Request(keyUrl, { method: "GET" });
-
-  // HTML: network-first
+  // HTML navegación: network-first
   if (req.mode === "navigate"){
     e.respondWith((async () => {
       try{
-        const fresh = await fetch(req, { cache: "no-store" });
+        const fresh = await fetch(new Request(req.url, { cache: "no-store" }));
         const c = await caches.open(CACHE);
-        c.put(keyReq, fresh.clone());
+        c.put("./index.html", fresh.clone());
         return fresh;
       }catch{
-        const cached = await caches.match(keyReq);
+        const cached = await caches.match(req);
         return cached || caches.match("./index.html");
       }
     })());
@@ -100,23 +98,30 @@ self.addEventListener("fetch", (e) => {
 
   // Assets: stale-while-revalidate
   e.respondWith((async () => {
-    const cached = await caches.match(keyReq);
-    const fetchPromise = fetch(req).then(async (fresh) => {
-      try{
-        const c = await caches.open(CACHE);
-        c.put(keyReq, fresh.clone());
-      }catch{}
-      return fresh;
-    }).catch(() => null);
+    const c = await caches.open(CACHE);
+    const cached = await c.match(req);
 
-    if (cached) {
-      fetchPromise.catch(() => null);
+    const fetchAndUpdate = (async () => {
+      try{
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok) c.put(req, fresh.clone());
+        return fresh;
+      }catch{
+        return null;
+      }
+    })();
+
+    // Devuelve cache si existe, y refresca en segundo plano
+    if (cached){
+      fetchAndUpdate;
       return cached;
     }
 
-    const fresh = await fetchPromise;
+    // Si no hay cache, intenta red
+    const fresh = await fetchAndUpdate;
     if (fresh) return fresh;
 
+    // fallback suave
     return caches.match("./index.html");
   })());
 });

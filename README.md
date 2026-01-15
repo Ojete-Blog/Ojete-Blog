@@ -1,88 +1,73 @@
-# GlobalEye Trends — Panel estilo X (100% GitHub Pages)
+# GlobalEye Trends (Ojete Blog)
 
-**GlobalEye Trends** es una mini-app web con estética **inspirada en X (oscura, limpia y profesional)** para vigilar “temas calientes” y saltar a X con un clic. Está pensada como **panel de control** para el contenido de **@GlobalEye_TV**.
+Panel estilo X para:
+- Calcular “tendencias” a partir de titulares recientes (open data).
+- Abrir cada tendencia directamente en la búsqueda de X.
+- Ver el timeline embebido de **@GlobalEye_TV** (widget oficial).
 
----
-
-## Qué muestra
-
-- **Ranking de tendencias “ahora”** (Top configurable).
-- **Timeline real embebido** de **@GlobalEye_TV** (widget oficial).
-- **Búsqueda rápida** dentro del ranking.
-- **Categorías** por heurísticas: **Noticias / Viral / Política / Deportes**.
-- **Favoritos**: guarda tendencias que te interesen y míralas en una vista dedicada.
-- **Alertas suaves** (toasts) al guardar favoritos y cuando un favorito “sube fuerte”.
-- **Modo Ticker (marquee)** para OBS o segunda pantalla.
-- **Panel de configuración** (auto-refresh, tamaño del top, ticker, alertas, etc.).
-- **Donativos Ko-fi** integrado: `ko-fi.com/global_eye`.
+> 100% compatible con **GitHub Pages** (sin backend, sin costes).
 
 ---
 
-## Qué significa “Tendencias” aquí (importante)
+## ¿Qué hace exactamente?
 
-Esta app es **100% frontend** (solo GitHub Pages), sin servidores ni infra extra.  
-Por ese diseño:
+### 1) Tendencias (open data)
+Este proyecto **no usa la API oficial de X** (porque no es gratuita para tendencias en tiempo real).
+En su lugar, consulta titulares recientes de una fuente abierta (GDELT) y calcula un ranking combinando:
+- Entidades (nombres propios).
+- Hashtags y menciones (@).
+- Frases (2–4 palabras) con heurística anti-ruido.
+- Clasificación básica por categoría (Noticias / Viral / Política / Deportes).
 
-- **No consume las “tendencias oficiales” internas de X (Explorar) vía API**, porque eso no es accesible desde un sitio estático sin backend/planes/credenciales.
-- En su lugar, el ranking se calcula **en tiempo real** a partir de **señales públicas (open data)**: titulares recientes y frecuencia de términos.
-- Cada tendencia incluye **“Ver en X”** para abrir la búsqueda directamente en X y validar / publicar.
+Cada ítem te manda a X con un click:
+`https://x.com/search?q=<tendencia>`
 
-Resultado: **señal en vivo + salto a X en 1 clic**, con coste 0€ y sin infraestructura.
+### 2) Timeline embebido
+Usa el script oficial:
+- `https://platform.twitter.com/widgets.js`
 
----
+Y el enlace del timeline se pone como `twitter.com/<usuario>` por compatibilidad del widget.
 
-## Detección “pro”: entidades y trending phrases
+> Si tu navegador bloquea el widget por privacidad, verás un aviso con un botón para abrir el perfil directamente.
 
-El extractor intenta detectar mejor:
-
-- **Entidades / nombres propios** (ej. secuencias capitalizadas tipo “Nombre Apellido”).
-- **Frases tendencia** (2–4 palabras) filtrando “stopwords” y ruido.
-- Hashtags y menciones se mantienen como candidatos prioritarios.
-
----
-
-## Categorías (heurísticas)
-
-Cada tendencia se clasifica automáticamente (no IA pesada, no servicios externos) según palabras clave y contexto del titular:
-
-- **Noticias** (por defecto)
-- **Viral** (meme, TikTok, streamer, polémicas…)
-- **Política** (gobierno, elecciones, congreso…)
-- **Deportes** (liga, champions, NBA, equipos…)
+### 3) Favoritos + Ticker + Config
+- Favoritos persistentes en localStorage.
+- Modo ticker inferior para OBS.
+- Modal de configuración: auto-refresh, intervalos, top N tendencias, velocidad ticker, etc.
 
 ---
 
-## Favoritos + alertas suaves
+## Si “no salen tendencias”
+Causas típicas:
+1. **La fuente (GDELT) está temporalmente limitada** o devuelve pocos artículos en ese intervalo.
+2. Estás en una ventana muy pequeña con un idioma muy restringido.
 
-- Marca una tendencia con ⭐ y se guarda localmente.
-- Puedes filtrar por **Favoritos**.
-- Alertas suaves:
-  - al guardar/quitar favoritos,
-  - cuando un favorito entra en ranking o sube notablemente.
+Soluciones:
+- Cambia a **Últimas 6h / 12h**.
+- Cambia idioma a **Mixto**.
+- Dale 1–2 minutos y pulsa **Actualizar**.
 
----
-
-## Modo Ticker (marquee)
-
-Una banda inferior tipo “TV” que muestra el Top actualizado:
-
-- Velocidad configurable (segundos por vuelta).
-- Pausa al pasar el ratón (para leer).
-- Ideal para OBS.
+La app muestra un mensaje claro si no llegan artículos.
 
 ---
 
-## Privacidad
-
-- No hay cuentas, no hay tracking propio.
-- Solo se usa `localStorage` para:
-  - configuración,
-  - modo compacto,
-  - favoritos,
-  - ranking anterior (para NEW/▲/▼).
+## Si “no sale el timeline embebido”
+Algunos navegadores bloquean el widget por tracking.
+La app hace “rescate” automático y, si no aparece el iframe, deja un botón directo al perfil.
 
 ---
 
-## Donativos (Ko-fi)
+## Archivos principales
+- `index.html` — Estructura UI + widget timeline.
+- `styles.css` — UI pro con fondo sólido (sin cortes al hacer scroll).
+- `app.js` — Tendencias, filtros, favoritos, ticker, config, SW auto-update.
+- `sw.js` — Cache + auto-update (GitHub Pages friendly).
+- `manifest.webmanifest` — PWA.
+- Imágenes: `logo_ojo_png.png`, `logo_ojo.jpg`, `logo_ojo_favicon.png`, `logo_ojo_gif.gif`, `banner_ojo.jpg`
 
-Botón integrado para apoyar el proyecto: **https://ko-fi.com/global_eye**
+---
+
+## Notas de privacidad
+- No hay login.
+- No se envía nada a servidores propios.
+- Solo se consultan endpoints públicos (GDELT) y se abre X en una pestaña nueva cuando tú lo pides.
