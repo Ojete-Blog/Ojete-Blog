@@ -1,97 +1,88 @@
-# GlobalEye Trends (GitHub Pages) — App estilo X
+# GlobalEye Trends — Panel estilo X (100% GitHub Pages)
 
-**GlobalEye Trends** es una mini-app web con estética **inspirada en X (dark, limpia, profesional)** que muestra:
-
-- Un panel central de **tendencias “ahora”** (ranking).
-- Un panel lateral con el **timeline real embebido** de **@GlobalEye_TV**.
-- Accesos rápidos a búsquedas en X (hashtags/keywords).
-- Auto-refresh con animaciones suaves y modo compacto.
+**GlobalEye Trends** es una mini-app web con estética **inspirada en X (oscura, limpia y profesional)** para vigilar “temas calientes” y saltar a X con un clic. Está pensada como **panel de control** para el contenido de **@GlobalEye_TV**.
 
 ---
 
-## Qué significa “Tendencias” en esta app (importante)
+## Qué muestra
 
-Esta app es **100% gratuita y 100% frontend** (sin servidores, sin Cloudflare, sin backends), por lo que:
-
-- **NO lee las “tendencias oficiales” que aparecen dentro de X (Explorar) vía API**, porque X no ofrece una forma directa y abierta para consultarlas desde un navegador estático sin backend/credenciales/planes.
-- En su lugar, el ranking se calcula **en tiempo real a partir de titulares recientes de fuentes abiertas** (open data) y se convierte en “tendencias” por frecuencia/score.
-- Cada tendencia incluye un botón **“Ver en X”** que abre la búsqueda directamente en X, para que puedas comprobarla o usarla como disparador de contenido.
-
-Resultado: **señal en vivo + salto a X con 1 click**, sin pagar nada y sin infraestructura.
-
----
-
-## Funcionalidades principales
-
-### 1) Ranking de tendencias (tiempo real)
-- Recoge titulares recientes (ventana temporal configurable).
-- Extrae términos/hashtags, los filtra y calcula un **score**.
-- Renderiza un **Top (por defecto 20)** con:
-  - Rank
-  - “menciones” (conteo)
-  - indicador **NEW / ▲ / ▼** comparando con el ranking anterior (guardado en local)
-  - botón **Ver en X**
-  - botón **Ejemplo** (abre una noticia/ejemplo)
-
-### 2) Timeline real embebido
-- Muestra el feed público de **@GlobalEye_TV** dentro de la UI.
-- Se integra con el script oficial de widgets para embeber el timeline.
-
-### 3) UI estilo X (pro)
-- Dark theme sobrio (negro, grises, azul).
-- Layout 3 columnas:
-  - Izquierda: navegación / estado de red / controles
-  - Centro: tendencias
-  - Derecha: timeline + chips
-- Animaciones de entrada suaves al cargar/actualizar.
-- **Modo compacto** (reduce altura y esconde metadatos) para lectura rápida.
-
-### 4) Auto-refresh inteligente
-- Actualiza automáticamente cada cierto tiempo con un pequeño jitter (para no “martillear”).
-- Botón “Actualizar” para refresh manual.
-- Indicador Online/Offline.
+- **Ranking de tendencias “ahora”** (Top configurable).
+- **Timeline real embebido** de **@GlobalEye_TV** (widget oficial).
+- **Búsqueda rápida** dentro del ranking.
+- **Categorías** por heurísticas: **Noticias / Viral / Política / Deportes**.
+- **Favoritos**: guarda tendencias que te interesen y míralas en una vista dedicada.
+- **Alertas suaves** (toasts) al guardar favoritos y cuando un favorito “sube fuerte”.
+- **Modo Ticker (marquee)** para OBS o segunda pantalla.
+- **Panel de configuración** (auto-refresh, tamaño del top, ticker, alertas, etc.).
+- **Donativos Ko-fi** integrado: `ko-fi.com/global_eye`.
 
 ---
 
-## Controles y filtros
+## Qué significa “Tendencias” aquí (importante)
 
-- **Idioma de fuentes**: ES / EN / Mixto  
-- **Ventana temporal**: 2h / 4h / 6h / 12h  
-- **Foco**: España/ES o Global (ajusta señal)  
-- **Búsqueda**: filtra el ranking en vivo sin recargar
+Esta app es **100% frontend** (solo GitHub Pages), sin servidores ni infra extra.  
+Por ese diseño:
 
----
+- **No consume las “tendencias oficiales” internas de X (Explorar) vía API**, porque eso no es accesible desde un sitio estático sin backend/planes/credenciales.
+- En su lugar, el ranking se calcula **en tiempo real** a partir de **señales públicas (open data)**: titulares recientes y frecuencia de términos.
+- Cada tendencia incluye **“Ver en X”** para abrir la búsqueda directamente en X y validar / publicar.
 
-## Qué guarda localmente (no es una cuenta, no es tracking)
-
-La app usa `localStorage` solo para:
-- Recordar el ranking anterior y poder mostrar **NEW/▲/▼**.
-- Recordar si tenías activado el **modo compacto**.
-
-No hay cuentas, no hay base de datos, no hay backend.
+Resultado: **señal en vivo + salto a X en 1 clic**, con coste 0€ y sin infraestructura.
 
 ---
 
-## Limitaciones (por diseño: 100% gratis y sin backend)
+## Detección “pro”: entidades y trending phrases
 
-- Las tendencias no son “las oficiales de X”, sino una **aproximación en tiempo real basada en señales públicas**.
-- El timeline embebido depende del widget de X (si X lo limita/bloquea en algunos países o navegadores, puede variar).
+El extractor intenta detectar mejor:
 
----
-
-## Para quién es esta app
-
-Ideal si quieres un **panel estilo X** para:
-- Vigilar temas calientes “ahora” sin coste.
-- Saltar a X con queries listas para publicar.
-- Tener tu timeline siempre visible en un layout pro.
-- Usarlo como “centro de control” para tu contenido de @GlobalEye_TV.
+- **Entidades / nombres propios** (ej. secuencias capitalizadas tipo “Nombre Apellido”).
+- **Frases tendencia** (2–4 palabras) filtrando “stopwords” y ruido.
+- Hashtags y menciones se mantienen como candidatos prioritarios.
 
 ---
 
-## Roadmap recomendado (sin romper el “0€”)
+## Categorías (heurísticas)
 
-- Mejorar detección de entidades (nombres propios) y “trending phrases”.
-- Separar “Noticias / Viral / Política / Deportes” con heurísticas.
-- Añadir “guardar tendencias favoritas” y alertas suaves.
-- Añadir un modo “ticker” (marquee) para OBS o segunda pantalla.
+Cada tendencia se clasifica automáticamente (no IA pesada, no servicios externos) según palabras clave y contexto del titular:
+
+- **Noticias** (por defecto)
+- **Viral** (meme, TikTok, streamer, polémicas…)
+- **Política** (gobierno, elecciones, congreso…)
+- **Deportes** (liga, champions, NBA, equipos…)
+
+---
+
+## Favoritos + alertas suaves
+
+- Marca una tendencia con ⭐ y se guarda localmente.
+- Puedes filtrar por **Favoritos**.
+- Alertas suaves:
+  - al guardar/quitar favoritos,
+  - cuando un favorito entra en ranking o sube notablemente.
+
+---
+
+## Modo Ticker (marquee)
+
+Una banda inferior tipo “TV” que muestra el Top actualizado:
+
+- Velocidad configurable (segundos por vuelta).
+- Pausa al pasar el ratón (para leer).
+- Ideal para OBS.
+
+---
+
+## Privacidad
+
+- No hay cuentas, no hay tracking propio.
+- Solo se usa `localStorage` para:
+  - configuración,
+  - modo compacto,
+  - favoritos,
+  - ranking anterior (para NEW/▲/▼).
+
+---
+
+## Donativos (Ko-fi)
+
+Botón integrado para apoyar el proyecto: **https://ko-fi.com/global_eye**

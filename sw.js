@@ -1,13 +1,16 @@
-/* sw.js — GlobalEye Trends — simple cache (GitHub Pages friendly) */
+/* sw.js — GlobalEye Trends — cache v2 (GitHub Pages friendly) */
 "use strict";
 
-const CACHE = "ge-trends-v1";
+const CACHE = "ge-trends-v2";
 const CORE = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.webmanifest"
+  "./manifest.webmanifest",
+  "./logo_ojo.jpg",
+  "./logo_ojo_gif.gif",
+  "./banner_ojo.jpg"
 ];
 
 self.addEventListener("install", (e) => {
@@ -30,7 +33,7 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
 
-  // Nunca cachees la API (siempre “live”)
+  // Nunca cachear la API (siempre live)
   if (url.hostname.includes("gdeltproject.org")){
     e.respondWith(fetch(req));
     return;

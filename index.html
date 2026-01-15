@@ -4,15 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#000000" />
+  <meta name="theme-color" content="#05060A" />
   <meta name="description" content="Panel estilo X: tendencias en tiempo real + timeline de @GlobalEye_TV. 100% GitHub Pages." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
 
   <title>GlobalEye • Trends</title>
 
+  <!-- Favicon simple (sin romper nada) -->
+  <link rel="icon" href="./logo_ojo.jpg" />
+  <link rel="apple-touch-icon" href="./logo_ojo.jpg" />
+
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
-
   <script defer src="./app.js"></script>
 </head>
 
@@ -23,11 +26,31 @@
     </div>
   </noscript>
 
+  <!-- HERO / BANNER -->
+  <header class="hero" aria-label="GlobalEye banner">
+    <img class="heroImg" src="./banner_ojo.jpg" alt="GlobalEye banner" loading="eager" />
+    <div class="heroOverlay">
+      <div class="heroBrand">
+        <img class="heroLogo" src="./logo_ojo.jpg" alt="GlobalEye logo" />
+        <div class="heroTxt">
+          <div class="heroTitle">GlobalEye</div>
+          <div class="heroSub">@GlobalEye_TV • Tendencias + señales</div>
+        </div>
+      </div>
+      <div class="heroCtas">
+        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Ver perfil en X</a>
+        <a class="cta ctaGhost" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">Donar (Ko-fi)</a>
+      </div>
+    </div>
+  </header>
+
   <div class="app">
     <!-- LEFT NAV -->
     <aside class="left">
       <div class="brand">
-        <div class="logo" aria-hidden="true">𝕏</div>
+        <div class="logo" aria-hidden="true">
+          <img class="logoImg" src="./logo_ojo.jpg" alt="" />
+        </div>
         <div class="brandText">
           <div class="brandTitle">GlobalEye</div>
           <div class="brandSub">@GlobalEye_TV</div>
@@ -40,6 +63,16 @@
           <span>Tendencias</span>
         </button>
 
+        <button class="navItem" id="btnTicker" type="button">
+          <span class="ico" aria-hidden="true">〰</span>
+          <span>Modo ticker</span>
+        </button>
+
+        <button class="navItem" id="btnConfig" type="button">
+          <span class="ico" aria-hidden="true">⚙️</span>
+          <span>Configuración</span>
+        </button>
+
         <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
           <span class="ico" aria-hidden="true">👤</span>
           <span>Perfil en X</span>
@@ -48,6 +81,11 @@
         <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer">
           <span class="ico" aria-hidden="true">🔎</span>
           <span>Explorar en X</span>
+        </a>
+
+        <a class="navItem" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
+          <span class="ico" aria-hidden="true">☕</span>
+          <span>Donar (Ko-fi)</span>
         </a>
       </nav>
 
@@ -64,6 +102,10 @@
         <button id="btnCompact" class="btn btnGhost" aria-pressed="false">
           Modo compacto
         </button>
+
+        <a class="btn btnKofi" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
+          Donar en Ko-fi
+        </a>
 
         <div class="hint">
           * “Tendencias” aquí = señales en tiempo real (open data) + botón “Ver en X”.
@@ -107,6 +149,22 @@
               <option value="ES" selected>España / ES</option>
               <option value="GLOBAL">Global</option>
             </select>
+          </div>
+        </div>
+
+        <!-- NUEVO: vistas + categorías -->
+        <div class="subHead">
+          <div class="tabs" id="tabsView" role="tablist" aria-label="Vista">
+            <button class="tab isActive" data-view="all" role="tab" aria-selected="true">Todo</button>
+            <button class="tab" data-view="favs" role="tab" aria-selected="false">Favoritos</button>
+          </div>
+
+          <div class="tabs tabsCat" id="tabsCat" role="tablist" aria-label="Categorías">
+            <button class="tab isActive" data-cat="all" role="tab" aria-selected="true">Todos</button>
+            <button class="tab" data-cat="news" role="tab" aria-selected="false">Noticias</button>
+            <button class="tab" data-cat="viral" role="tab" aria-selected="false">Viral</button>
+            <button class="tab" data-cat="politics" role="tab" aria-selected="false">Política</button>
+            <button class="tab" data-cat="sports" role="tab" aria-selected="false">Deportes</button>
           </div>
         </div>
 
@@ -156,18 +214,94 @@
         </div>
       </div>
 
+      <div class="rightCard">
+        <div class="rightTitle">Donativos</div>
+        <div class="rightSub">
+          Si te mola el proyecto, puedes apoyar a GlobalEye con un café ☕
+        </div>
+        <a class="kofiCard" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
+          <span class="kofiDot" aria-hidden="true">☕</span>
+          <span>ko-fi.com/global_eye</span>
+          <span class="kofiGo" aria-hidden="true">→</span>
+        </a>
+      </div>
+
       <div class="rightCard subtle">
         <div class="rightTitle">Nota</div>
         <div class="rightSub">
-          El timeline embebido no “hace polling” infinito; se refresca al recargar. :contentReference[oaicite:3]{index=3}
+          La app es 100% frontend y sin APIs de pago: el ranking es una señal basada en open data + salto a X.
         </div>
       </div>
     </aside>
   </div>
 
+  <!-- TICKER -->
+  <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker de tendencias">
+    <div class="tickerInner">
+      <img class="tickerLogo" src="./logo_ojo_gif.gif" alt="" />
+      <div class="tickerViewport">
+        <div id="tickerTrack" class="tickerTrack"></div>
+      </div>
+      <button id="tickerClose" class="tickerClose" type="button" title="Cerrar ticker" aria-label="Cerrar ticker">✕</button>
+    </div>
+  </div>
+
+  <!-- TOASTS -->
+  <div id="toastHost" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+
+  <!-- CONFIG MODAL -->
+  <div id="cfgModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cfgTitle">
+    <div class="modalCard">
+      <div class="modalHead">
+        <div class="modalTitle" id="cfgTitle">Configuración</div>
+        <button id="cfgClose" class="iconBtn" type="button" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="modalGrid">
+        <label class="field">
+          <span>Auto-refresh</span>
+          <input id="cfgAuto" type="checkbox" />
+        </label>
+
+        <label class="field">
+          <span>Intervalo (seg)</span>
+          <input id="cfgEvery" type="number" min="35" max="900" step="5" />
+        </label>
+
+        <label class="field">
+          <span>Top tendencias</span>
+          <input id="cfgMaxTrends" type="number" min="10" max="60" step="1" />
+        </label>
+
+        <label class="field">
+          <span>Alertas suaves</span>
+          <input id="cfgAlerts" type="checkbox" />
+        </label>
+
+        <label class="field">
+          <span>Modo ticker</span>
+          <input id="cfgTicker" type="checkbox" />
+        </label>
+
+        <label class="field">
+          <span>Velocidad ticker (seg/vuelta)</span>
+          <input id="cfgTickerSpeed" type="number" min="12" max="120" step="1" />
+        </label>
+
+        <div class="modalActions">
+          <button id="cfgSave" class="btn btnPrimary" type="button">Guardar</button>
+          <button id="cfgReset" class="btn btnGhost" type="button">Reset</button>
+        </div>
+
+        <div class="modalHint">
+          Consejo: si usas OBS, activa “Modo ticker” + “Modo compacto”.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- X widgets loader (oficial) -->
   <script>
-    // Recomendado por X for Websites: carga widgets.js una vez. :contentReference[oaicite:4]{index=4}
     window.twttr = (function(d, s, id) {
       var js, fjs = d.getElementsByTagName(s)[0], t = window.twttr || {};
       if (d.getElementById(id)) return t;
