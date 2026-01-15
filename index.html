@@ -62,8 +62,7 @@
       </div>
 
       <div class="heroCtas">
-        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">IR A X</a>
-        <a class="cta ctaGhost" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">Donar (Ko-fi)</a>
+        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer noopener">IR A X</a>
       </div>
     </div>
   </header>
@@ -89,34 +88,29 @@
       </div>
 
       <nav class="nav" aria-label="Navegación">
-        <button class="navItem isActive" type="button" data-route="trends" aria-current="page">
+        <button class="navItem isActive" data-route="trends" aria-current="page" type="button">
           <span class="ico" aria-hidden="true">⌁</span>
           <span>Tendencias</span>
         </button>
 
         <button class="navItem" id="btnTicker" type="button">
           <span class="ico" aria-hidden="true">〰</span>
-          <span>Modo ticker</span>
+          <span>Ticker</span>
         </button>
 
         <button class="navItem" id="btnConfig" type="button">
-          <span class="ico" aria-hidden="true">⚙️</span>
-          <span>Configuración</span>
+          <span class="ico" aria-hidden="true">⚙</span>
+          <span>Config</span>
         </button>
 
-        <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+        <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer noopener">
           <span class="ico" aria-hidden="true">👤</span>
           <span>Perfil en X</span>
         </a>
 
-        <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer">
+        <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer noopener">
           <span class="ico" aria-hidden="true">🔎</span>
           <span>Explorar en X</span>
-        </a>
-
-        <a class="navItem" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
-          <span class="ico" aria-hidden="true">☕</span>
-          <span>Donar (Ko-fi)</span>
         </a>
       </nav>
 
@@ -130,16 +124,12 @@
           Actualizar
         </button>
 
-        <button id="btnCompact" class="btn btnGhost" type="button" aria-pressed="false">
+        <button id="btnCompact" class="btn btnGhost" aria-pressed="false" type="button">
           Modo compacto
         </button>
 
-        <a class="btn btnKofi" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
-          Donar en Ko-fi
-        </a>
-
         <div class="hint">
-          <!-- Sugerencia opcional: "Open data + salto a X con 1 click" -->
+          * “Tendencias” aquí = señales en tiempo real (open data) + botón “Ver en X”.
         </div>
       </div>
     </aside>
@@ -152,9 +142,16 @@
           <div class="subtitle" id="lastUpdated">—</div>
         </div>
 
-        <div class="searchWrap" role="search">
+        <div class="searchWrap">
           <span class="searchIco" aria-hidden="true">🔎</span>
-          <input id="q" class="search" type="search" placeholder="Buscar tendencia…" autocomplete="off" />
+          <input
+            id="q"
+            class="search"
+            type="search"
+            placeholder="Filtra tendencias (ej: #ENVIVO, trump, madrid...)"
+            autocomplete="off"
+            spellcheck="false"
+          />
         </div>
       </header>
 
@@ -183,7 +180,6 @@
           </div>
         </div>
 
-        <!-- Vistas + categorías -->
         <div class="subHead">
           <div class="tabs" id="tabsView" role="tablist" aria-label="Vista">
             <button class="tab isActive" type="button" data-view="all" role="tab" aria-selected="true">Todo</button>
@@ -239,22 +235,30 @@
       <div class="rightCard">
         <div class="rightTitle">Accesos rápidos</div>
         <div class="quick">
-          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23ENVIVO">#ENVIVO</a>
-          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23ULTIMAHORA">#ULTIMAHORA</a>
-          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23BREAKING">#BREAKING</a>
+          <a class="chip" target="_blank" rel="noreferrer noopener" href="https://x.com/search?q=%23ENVIVO">#ENVIVO</a>
+          <a class="chip" target="_blank" rel="noreferrer noopener" href="https://x.com/search?q=%23ULTIMAHORA">#ULTIMAHORA</a>
+          <a class="chip" target="_blank" rel="noreferrer noopener" href="https://x.com/search?q=%23BREAKING">#BREAKING</a>
         </div>
       </div>
 
+      <!-- ✅ KO-FI SOLO AQUÍ (1 vez) -->
       <div class="rightCard">
         <div class="rightTitle">Donativos</div>
         <div class="rightSub">
           Si te mola el proyecto, puedes apoyar a GlobalEye con un café ☕
         </div>
-        <a class="kofiCard" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
+        <a class="kofiCard" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer noopener">
           <span class="kofiDot" aria-hidden="true">☕</span>
           <span>ko-fi.com/global_eye</span>
           <span class="kofiGo" aria-hidden="true">→</span>
         </a>
+      </div>
+
+      <div class="rightCard subtle">
+        <div class="rightTitle">Nota</div>
+        <div class="rightSub">
+          El timeline embebido no “hace polling” infinito; se refresca al recargar.
+        </div>
       </div>
     </aside>
   </div>
