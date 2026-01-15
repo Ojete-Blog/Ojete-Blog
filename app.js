@@ -1,89 +1,98 @@
-/* app.js — GlobalEye Trends (GitHub Pages) v1.1.0 — 2026-01-15b
-   ✅ 100% frontend (GitHub Pages)
-   ✅ Branding: logo + banner + gif para alertas
-   ✅ Ko-fi integrado (link directo)
-   ✅ Mejor detección de ENTIDADES (nombres propios) + trending phrases (2-4 palabras)
-   ✅ Categorías heurísticas: Noticias / Viral / Política / Deportes
-   ✅ Favoritos (localStorage) + alertas suaves
-   ✅ Modo Ticker (marquee) con velocidad configurable
-   ✅ Panel de configuración (sin romper IDs existentes)
+/* app.js — Ojete Blog / GlobalEye Trends — v1.2.0 (HARDENED + PNG LOGO + NO DUPES)
+   ✅ 100% compatible con tu index.html actual (IDs, tabs, modal, ticker, etc.)
+   ✅ Usa logo_ojo_png.png (transparente) automáticamente para logos + favicon, fallback a jpg
+   ✅ Anti-duplicidades: guard de carga + listeners únicos + timers únicos + AbortController
+   ✅ Mejora entidades (nombres propios) + trending phrases (2–4 palabras)
+   ✅ Favoritos + alertas suaves + modo ticker + config panel estable
 */
 
 (() => {
   "use strict";
 
+  /* ───────────────────────────── GUARD ANTI DOBLE CARGA ───────────────────────────── */
+  const APP_TAG = "ojete-trends:v1.2.0";
+  try{
+    if (window.__OJETE_TRENDS_APP__?.tag === APP_TAG) return;
+    window.__OJETE_TRENDS_APP__ = { tag: APP_TAG, startedAt: Date.now() };
+  }catch{}
+
+  /* ───────────────────────────── CONFIG ───────────────────────────── */
   const CFG = {
-    xHandle: "GlobalEye_TV",
-    xProfileUrl: "https://x.com/GlobalEye_TV",
-    kofiUrl: "https://ko-fi.com/global_eye",
-
-    // Open data con CORS OK
     gdeltBase: "https://api.gdeltproject.org/api/v2/doc/doc",
+    X_SEARCH: "https://x.com/search?q=",
 
-    // LocalStorage
-    LS_SETTINGS: "ge_settings_v1",
-    LS_RANKS: "ge_ranks_v2",
-    LS_FAVS: "ge_favs_v1",
-    LS_COMPACT: "ge_compact_v1",
-
-    // Branding assets (en raíz)
+    // Branding
+    logoPng: "./logo_ojo_png.png",
+    logoJpg: "./logo_ojo.jpg",
     toastGif: "./logo_ojo_gif.gif",
 
-    // Límites de seguridad
+    // LocalStorage
+    LS_SETTINGS: "ojete_trends_settings_v2",
+    LS_FAVS: "ojete_trends_favs_v2",
+    LS_RANKS: "ojete_trends_ranks_v2",
+    LS_COMPACT: "ojete_trends_compact_v2",
+
     MIN_REFRESH_MS: 35_000,
-    MAX_REFRESH_MS: 15 * 60_000
+    MAX_REFRESH_MS: 900_000,
+
+    FETCH_TIMEOUT_MS: 12_500
   };
 
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  /* ───────────────────────────── DOM ───────────────────────────── */
+  const elList = document.getElementById("list");
+  const elEmpty = document.getElementById("empty");
+  const elErr = document.getElementById("err");
+  const elLast = document.getElementById("lastUpdated");
+  const elNet = document.getElementById("netStatus");
 
-  // Elementos existentes (no tocar IDs)
-  const elList = $("#list");
-  const elEmpty = $("#empty");
-  const elErr = $("#err");
-  const elLast = $("#lastUpdated");
-  const elNet = $("#netStatus");
-  const btnRefresh = $("#btnRefresh");
-  const btnCompact = $("#btnCompact");
-  const inpQ = $("#q");
-  const selLang = $("#selLang");
-  const selWindow = $("#selWindow");
-  const selGeo = $("#selGeo");
+  const btnRefresh = document.getElementById("btnRefresh");
+  const btnCompact = document.getElementById("btnCompact");
 
-  // Nuevos
-  const btnConfig = $("#btnConfig");
-  const cfgModal = $("#cfgModal");
-  const cfgClose = $("#cfgClose");
-  const cfgSave = $("#cfgSave");
-  const cfgReset = $("#cfgReset");
-  const cfgAuto = $("#cfgAuto");
-  const cfgEvery = $("#cfgEvery");
-  const cfgMaxTrends = $("#cfgMaxTrends");
-  const cfgAlerts = $("#cfgAlerts");
-  const cfgTicker = $("#cfgTicker");
-  const cfgTickerSpeed = $("#cfgTickerSpeed");
+  const inpQ = document.getElementById("q");
+  const selLang = document.getElementById("selLang");
+  const selWindow = document.getElementById("selWindow");
+  const selGeo = document.getElementById("selGeo");
 
-  const toastHost = $("#toastHost");
+  const tabsView = document.getElementById("tabsView");
+  const tabsCat = document.getElementById("tabsCat");
 
-  const tabsView = $("#tabsView");
-  const tabsCat = $("#tabsCat");
+  // Ticker
+  const btnTicker = document.getElementById("btnTicker");
+  const tickerBar = document.getElementById("tickerBar");
+  const tickerTrack = document.getElementById("tickerTrack");
+  const tickerClose = document.getElementById("tickerClose");
 
-  const btnTicker = $("#btnTicker");
-  const tickerBar = $("#tickerBar");
-  const tickerTrack = $("#tickerTrack");
-  const tickerClose = $("#tickerClose");
+  // Toasts
+  const toastHost = document.getElementById("toastHost");
 
+  // Config modal
+  const btnConfig = document.getElementById("btnConfig");
+  const cfgModal = document.getElementById("cfgModal");
+  const cfgClose = document.getElementById("cfgClose");
+  const cfgSave = document.getElementById("cfgSave");
+  const cfgReset = document.getElementById("cfgReset");
+
+  const cfgAuto = document.getElementById("cfgAuto");
+  const cfgEvery = document.getElementById("cfgEvery");
+  const cfgMaxTrends = document.getElementById("cfgMaxTrends");
+  const cfgAlerts = document.getElementById("cfgAlerts");
+  const cfgTicker = document.getElementById("cfgTicker");
+  const cfgTickerSpeed = document.getElementById("cfgTickerSpeed");
+
+  /* ───────────────────────────── STOPWORDS / CATEGORÍAS ───────────────────────────── */
   const STOP_ES = new Set([
-    "de","la","el","los","las","un","una","unos","unas","y","o","u","a","en","por","para","con","sin","del","al",
-    "se","su","sus","lo","le","les","que","como","más","mas","ya","hoy","ayer","mañana","ahora","sobre","tras",
-    "ante","entre","desde","hasta","contra","durante","según","cuando","donde","quién","quien","qué","este","esta",
-    "estos","estas","eso","esa","esos","esas","aquí","alli","allí","ahí","muy","también","tambien","ser","es","son",
-    "fue","han","hay","sus","una","uno","dos","tres"
+    "el","la","los","las","un","una","unos","unas","y","o","u","de","del","al","a","en","por","para","con","sin",
+    "se","su","sus","lo","le","les","que","como","más","mas","muy","ya","no","sí","si","es","son","fue","han","hay",
+    "este","esta","estos","estas","eso","esa","esos","esas","aquí","alli","allí","ahí",
+    "hoy","ayer","mañana","ahora","sobre","tras","ante","entre","desde","hasta","contra","durante","según","cuando",
+    "donde","quién","quien","qué","porque","pues","también","tambien","ser","estar","está","están","fueron",
+    "uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez"
   ]);
 
   const STOP_EN = new Set([
-    "the","a","an","and","or","to","of","in","on","for","with","without","from","by","as","at","is","are","was","were",
-    "be","been","it","its","this","that","these","those","now","today","yesterday","tomorrow","about","after","before"
+    "the","a","an","and","or","to","of","in","on","for","with","without","from","by","as","at",
+    "is","are","was","were","be","been","it","its","this","that","these","those","now","today","yesterday","tomorrow",
+    "about","after","before"
   ]);
 
   const CAT = {
@@ -102,32 +111,49 @@
   };
 
   const DEFAULT_SETTINGS = {
+    // Refresh
     autoRefresh: true,
     refreshEveryMs: 120_000,
     refreshJitterMs: 12_000,
+
+    // Data
     maxArticles: 260,
     maxTrends: 24,
+
+    // UX
     alertsEnabled: true,
     tickerEnabled: false,
-    tickerSpeedSec: 28
+    tickerSpeedSec: 28,
+
+    // UI selects persistidos
+    lang: "spanish",   // spanish | english | mixed
+    window: "4H",      // 2H | 4H | 6H | 12H
+    geo: "ES"          // ES | GLOBAL (heurístico)
   };
 
   const state = {
     all: [],
     filtered: [],
+
     timer: null,
     abort: null,
+    refreshing: false,
+
     lastRanks: new Map(),
     favs: new Set(),
-    view: "all",        // "all" | "favs"
-    category: "all",    // "all" | CAT.*
+
+    view: "all",        // all | favs
+    category: "all",    // all | news | viral | politics | sports
     compact: false,
-    settings: { ...DEFAULT_SETTINGS }
+
+    settings: { ...DEFAULT_SETTINGS },
+
+    bound: false
   };
 
+  /* ───────────────────────────── UTILS ───────────────────────────── */
   function safeLower(s){ return String(s || "").toLowerCase(); }
   function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
-  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
   function escapeHtml(s){
     return String(s ?? "")
@@ -152,14 +178,7 @@
   function setLastUpdated(){
     if (!elLast) return;
     const d = new Date();
-    const pad = (n) => String(n).padStart(2,"0");
-    elLast.textContent = `Actualizado: ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
-
-  function showError(msg){
-    if (!elErr) return;
-    elErr.textContent = msg;
-    elErr.classList.remove("hidden");
+    elLast.textContent = `Actualizado: ${d.toLocaleString()}`;
   }
 
   function clearError(){
@@ -168,10 +187,348 @@
     elErr.textContent = "";
   }
 
+  function showError(msg){
+    if (!elErr) return;
+    elErr.classList.remove("hidden");
+    elErr.textContent = msg;
+  }
+
+  /* ───────────────────────────── BRANDING PNG (AUTO) ───────────────────────────── */
+  function applyPngLogoIfAvailable(){
+    const png = CFG.logoPng;
+    const jpg = CFG.logoJpg;
+
+    const img = new Image();
+    img.onload = () => {
+      // Logos visibles
+      const imgs = document.querySelectorAll("img.heroLogo, img.logoImg");
+      imgs.forEach(el => {
+        el.src = png;
+        // PNG transparente: mejor "contain" para no cortar
+        try{
+          el.style.objectFit = "contain";
+          el.style.background = "transparent";
+        }catch{}
+      });
+
+      // Favicon / Apple touch
+      const icon = document.querySelector('link[rel="icon"]');
+      if (icon) icon.href = png;
+
+      const apple = document.querySelector('link[rel="apple-touch-icon"]');
+      if (apple) apple.href = png;
+    };
+    img.onerror = () => {
+      // fallback por si el PNG no existe
+      const imgs = document.querySelectorAll("img.heroLogo, img.logoImg");
+      imgs.forEach(el => { el.src = jpg; });
+    };
+    img.src = png;
+  }
+
+  /* ───────────────────────────── SELECTS ───────────────────────────── */
+  function pickTimespan(){
+    const v = String(selWindow?.value || state.settings.window || "4H").toUpperCase();
+    if (["2H","4H","6H","12H"].includes(v)) return v;
+    return "4H";
+  }
+
+  function pickLang(){
+    const v = String(selLang?.value || state.settings.lang || "spanish").toLowerCase();
+    if (v === "mixed") return "mixed";
+    if (v === "english") return "english";
+    return "spanish";
+  }
+
+  function pickGeo(){
+    const v = String(selGeo?.value || state.settings.geo || "ES").toUpperCase();
+    return (v === "GLOBAL") ? "GLOBAL" : "ES";
+  }
+
+  /* ───────────────────────────── FETCH ───────────────────────────── */
+  function buildGdeltQuery(){
+    const lang = pickLang();
+    const geo = pickGeo();
+
+    // “ES” aquí = foco hispano (sourcelang:spanish). GLOBAL abre un poco señal.
+    let q;
+    if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
+    else q = `sourcelang:${lang}`;
+
+    if (geo === "GLOBAL" && lang === "spanish"){
+      q = `(sourcelang:spanish OR sourcelang:english)`;
+    }
+    return q;
+  }
+
+  function buildUrl(){
+    const params = new URLSearchParams();
+    params.set("format", "json");
+    params.set("mode", "ArtList");
+    params.set("sort", "hybridrel");
+    params.set("maxrecords", String(clamp(state.settings.maxArticles, 50, 500)));
+    params.set("timespan", pickTimespan());
+    params.set("query", buildGdeltQuery());
+    return `${CFG.gdeltBase}?${params.toString()}`;
+  }
+
+  async function fetchWithTimeout(url, ms, signal){
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    const onAbort = () => ctrl.abort();
+
+    try{
+      if (signal) signal.addEventListener("abort", onAbort, { once:true });
+      const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+      return res;
+    }finally{
+      clearTimeout(t);
+      if (signal) signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  /* ───────────────────────────── TOKENS / ENTIDADES / FRASES ───────────────────────────── */
+  function normalizeToken(t){
+    return safeLower(t)
+      .replace(/[\u2019']/g, "")          // apostrofes
+      .replace(/[^\p{L}\p{N}#@]+/gu, "")  // solo letras/números/#/@
+      .trim();
+  }
+
+  function isStop(token){
+    if (!token) return true;
+    const t = token.replace(/^[@#]/, "");
+    if (!t) return true;
+    if (t.length <= 2) return true;
+
+    const lang = pickLang();
+    if (lang === "english") return STOP_EN.has(t);
+    if (lang === "spanish") return STOP_ES.has(t);
+    // mixed
+    return STOP_ES.has(t) || STOP_EN.has(t);
+  }
+
+  function splitWords(title){
+    const raw = String(title || "")
+      .replace(/[\u2013\u2014]/g, " ")
+      .replace(/[(){}\[\]:"“”'’]/g, " ")
+      .replace(/[!?,.;]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const parts = raw ? raw.split(" ") : [];
+    return parts.map(w => {
+      const clean = w.replace(/^[^#@A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+|[^#@A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+$/g, "");
+      const norm = normalizeToken(clean);
+      const isHash = norm.startsWith("#");
+      const isAt = norm.startsWith("@");
+      const base = norm.replace(/^[@#]/,"");
+      const cap = /^[A-ZÁÉÍÓÚÜÑ]/.test(clean) && !isHash && !isAt;
+
+      return {
+        raw: clean,
+        norm,
+        base,
+        cap,
+        isHash,
+        isAt
+      };
+    }).filter(x => x.norm);
+  }
+
+  // Entidades: secuencias tipo "Nombre Apellido" permitiendo conectores "de/del/la/los/las/y"
+  function extractEntityPhrases(words){
+    const connectors = new Set(["de","del","la","las","los","y","da","do","dos","das"]);
+    const out = [];
+
+    let i = 0;
+    while (i < words.length){
+      const w = words[i];
+      if (!w.cap || isStop(w.norm)) { i++; continue; }
+
+      const start = i;
+      let end = i;
+
+      // consume (Cap) (connector) (Cap) ...
+      while (end + 1 < words.length){
+        const next = words[end + 1];
+        const n = next.norm.replace(/^[@#]/,"");
+
+        if (next.cap && !isStop(next.norm)){
+          end++;
+          continue;
+        }
+
+        // conector entre caps
+        if (!next.isHash && !next.isAt && connectors.has(n) && end + 2 < words.length){
+          const after = words[end + 2];
+          if (after.cap && !isStop(after.norm)){
+            end += 2;
+            continue;
+          }
+        }
+        break;
+      }
+
+      // mínimo 2 tokens para evitar "Lunes" etc
+      if (end > start){
+        const phrase = words.slice(start, end + 1).map(x => x.raw).join(" ").trim();
+        const normPhrase = normalizeToken(phrase);
+        if (normPhrase && normPhrase.length >= 5){
+          out.push(phrase);
+        }
+      }
+
+      i = end + 1;
+    }
+
+    return out;
+  }
+
+  function extractNgrams(words, nMin, nMax){
+    const toks = words
+      .filter(w => !w.isAt && !w.isHash)
+      .map(w => normalizeToken(w.raw))
+      .filter(Boolean);
+
+    const grams = [];
+    for (let n = nMin; n <= nMax; n++){
+      for (let i = 0; i <= toks.length - n; i++){
+        const slice = toks.slice(i, i + n);
+        if (slice.some(isStop)) continue;
+
+        // evita frases compuestas solo por números
+        if (slice.every(x => /^[0-9]+$/.test(x))) continue;
+
+        // al menos un token “fuerte”
+        if (!slice.some(x => x.length >= 4 && !isStop(x))) continue;
+
+        const phrase = slice.join(" ");
+        if (phrase.length >= 6) grams.push(phrase);
+      }
+    }
+    return grams;
+  }
+
+  /* ───────────────────────────── CLASIFICACIÓN ───────────────────────────── */
+  function classify(label, sampleTitle){
+    const s = safeLower(label + " " + (sampleTitle || ""));
+
+    const sports =
+      /\b(liga|laliga|champions|europa league|premier|nba|nfl|mlb|f1|formula 1|gran premio|gp|goles|gol|partido|derbi|clásico|madrid|barça|barcelona|atleti|atlético|sevilla|valencia|betis)\b/.test(s);
+
+    if (sports) return CAT.sports;
+
+    const politics =
+      /\b(gobierno|congreso|senado|parlamento|presidente|ministro|ministra|elecciones|pp|psoe|vox|podemos|sumar|política|politica|ley|decreto|tribunal|constitucional|ue|otan|onu|casa blanca|trump|biden|putin|zelenski|netanyahu)\b/.test(s);
+
+    if (politics) return CAT.politics;
+
+    const viral =
+      /\b(viral|meme|tiktok|tik tok|twitch|streamer|youtube|youtuber|influencer|polémica|polemica|trend|challenge|filtrado|filtración|escándalo|escandalo)\b/.test(s);
+
+    if (viral) return CAT.viral;
+
+    return CAT.news;
+  }
+
+  /* ───────────────────────────── RANKS (NEW/▲/▼) ───────────────────────────── */
+  function loadLastRanks(){
+    try{
+      const raw = localStorage.getItem(CFG.LS_RANKS);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const obj = parsed?.ranks || parsed;
+      if (!obj || typeof obj !== "object") return;
+
+      state.lastRanks = new Map(
+        Object.entries(obj).map(([k,v]) => [String(k), Number(v)])
+      );
+    }catch{}
+  }
+
+  function saveRanks(trends){
+    try{
+      const ranks = {};
+      trends.forEach((t, idx) => { ranks[String(t.term)] = idx + 1; });
+      localStorage.setItem(CFG.LS_RANKS, JSON.stringify({ ts: Date.now(), ranks }));
+      state.lastRanks = new Map(Object.entries(ranks).map(([k,v]) => [String(k), Number(v)]));
+    }catch{}
+  }
+
+  function deltaBadge(term, newRank){
+    const oldRank = state.lastRanks.get(String(term));
+    if (!oldRank) return { cls: "new", txt: "NEW" };
+    const diff = oldRank - newRank;
+    if (diff > 0) return { cls: "up", txt: `▲${diff}` };
+    if (diff < 0) return { cls: "down", txt: `▼${Math.abs(diff)}` };
+    return { cls: "same", txt: "—" };
+  }
+
+  /* ───────────────────────────── FAVORITOS + TOAST ───────────────────────────── */
+  function loadFavs(){
+    try{
+      const raw = localStorage.getItem(CFG.LS_FAVS);
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)){
+        state.favs = new Set(arr.filter(Boolean).map(String));
+      }
+    }catch{}
+  }
+
+  function saveFavs(){
+    try{
+      localStorage.setItem(CFG.LS_FAVS, JSON.stringify(Array.from(state.favs)));
+    }catch{}
+  }
+
+  function toast(title, msg){
+    if (!toastHost) return;
+
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `
+      <img class="toastImg" src="${CFG.toastGif}" alt="" />
+      <div class="toastRow">
+        <div class="toastTitle">${escapeHtml(title)}</div>
+        <div class="toastMsg">${escapeHtml(msg)}</div>
+      </div>
+      <button class="toastX" type="button" aria-label="Cerrar">✕</button>
+    `;
+
+    const kill = () => {
+      el.style.transition = "opacity .14s ease, transform .14s ease";
+      el.style.opacity = "0";
+      el.style.transform = "translateY(8px)";
+      setTimeout(() => el.remove(), 160);
+    };
+
+    el.querySelector(".toastX")?.addEventListener("click", kill, { once:true });
+    toastHost.appendChild(el);
+
+    // auto close
+    setTimeout(kill, 3600);
+  }
+
+  function toggleFav(term, label){
+    const key = String(term);
+    const was = state.favs.has(key);
+    if (was) state.favs.delete(key);
+    else state.favs.add(key);
+    saveFavs();
+
+    if (state.settings.alertsEnabled){
+      toast(was ? "Favorito eliminado" : "Favorito guardado", label || term);
+    }
+    applyFilter(); // re-render
+  }
+
+  /* ───────────────────────────── SETTINGS / COMPACT ───────────────────────────── */
   function loadCompact(){
     try{
       const v = localStorage.getItem(CFG.LS_COMPACT);
-      state.compact = v === "1";
+      state.compact = (v === "1");
       document.body.classList.toggle("compact", state.compact);
       btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
     }catch{}
@@ -196,13 +553,11 @@
   }
 
   function saveSettings(){
-    try{
-      localStorage.setItem(CFG.LS_SETTINGS, JSON.stringify(state.settings));
-    }catch{}
+    try{ localStorage.setItem(CFG.LS_SETTINGS, JSON.stringify(state.settings)); }catch{}
   }
 
   function applySettingsToUI(){
-    // selects existentes
+    // selects
     if (selLang && state.settings.lang) selLang.value = state.settings.lang;
     if (selWindow && state.settings.window) selWindow.value = state.settings.window;
     if (selGeo && state.settings.geo) selGeo.value = state.settings.geo;
@@ -220,592 +575,16 @@
     setTickerVisible(!!state.settings.tickerEnabled);
   }
 
-  function loadFavs(){
-    try{
-      const raw = localStorage.getItem(CFG.LS_FAVS);
-      if (!raw) return;
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)){
-        state.favs = new Set(arr.filter(Boolean).map(String));
-      }
-    }catch{}
-  }
-
-  function saveFavs(){
-    try{
-      localStorage.setItem(CFG.LS_FAVS, JSON.stringify(Array.from(state.favs)));
-    }catch{}
-  }
-
-  function toggleFav(term, label){
-    const key = String(term);
-    const was = state.favs.has(key);
-    if (was) state.favs.delete(key);
-    else state.favs.add(key);
-    saveFavs();
-
-    if (state.settings.alertsEnabled){
-      toast(was ? "Favorito eliminado" : "Favorito guardado", label || term);
-    }
-    applyFilter(); // re-render
-  }
-
-  function toast(title, msg){
-    if (!toastHost) return;
-
-    const el = document.createElement("div");
-    el.className = "toast";
-    el.innerHTML = `
-      <img class="toastImg" src="${CFG.toastGif}" alt="" />
-      <div class="toastRow">
-        <div class="toastTitle">${escapeHtml(title)}</div>
-        <div class="toastMsg">${escapeHtml(msg)}</div>
-      </div>
-      <button class="toastX" type="button" aria-label="Cerrar">✕</button>
-    `;
-
-    const kill = () => {
-      el.style.transition = "opacity .14s ease, transform .14s ease";
-      el.style.opacity = "0";
-      el.style.transform = "translateY(8px)";
-      setTimeout(() => el.remove(), 160);
-    };
-
-    el.querySelector(".toastX")?.addEventListener("click", kill);
-
-    toastHost.appendChild(el);
-    setTimeout(kill, 3400);
-  }
-
-  function pickTimespan(){
-    const v = (selWindow?.value || "4H").toUpperCase();
-    if (["2H","4H","6H","12H"].includes(v)) return v;
-    return "4H";
-  }
-
-  function pickLang(){
-    const v = (selLang?.value || "spanish").toLowerCase();
-    if (v === "mixed") return "mixed";
-    if (v === "english") return "english";
-    return "spanish";
-  }
-
-  function pickGeo(){
-    const v = (selGeo?.value || "ES").toUpperCase();
-    return v === "GLOBAL" ? "GLOBAL" : "ES";
-  }
-
-  function buildGdeltQuery(){
-    const lang = pickLang();
-    const geo = pickGeo();
-
-    let q;
-    if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
-    else q = `sourcelang:${lang}`;
-
-    if (geo === "GLOBAL" && lang === "spanish"){
-      q = `(sourcelang:spanish OR sourcelang:english)`;
-    }
-    return q;
-  }
-
-  function buildUrl(){
-    const params = new URLSearchParams();
-    params.set("format", "json");
-    params.set("mode", "ArtList");
-    params.set("sort", "hybridrel");
-    params.set("maxrecords", String(state.settings.maxArticles));
-    params.set("timespan", pickTimespan());
-    params.set("query", buildGdeltQuery());
-    return `${CFG.gdeltBase}?${params.toString()}`;
-  }
-
-  function isStop(tokenLower){
-    return STOP_ES.has(tokenLower) || STOP_EN.has(tokenLower);
-  }
-
-  function splitWords(title){
-    // Mantiene raw para detectar Capitalized / ALLCAPS
-    const raw = String(title || "")
-      .replace(/[\u2014\u2013]/g, " ")
-      .replace(/[(){}\[\]"“”.,:;!?]/g, " ")
-      .split(/\s+/g)
-      .filter(Boolean);
-
-    return raw.map(w => {
-      const rawW = w.trim();
-      const isHash = rawW.startsWith("#");
-      const isAt = rawW.startsWith("@");
-      const cleaned = rawW
-        .replace(/[\u2019']/g, "")
-        .replace(/[^\p{L}\p{N}#@]+/gu, "")
-        .trim();
-
-      const lower = cleaned.toLowerCase();
-      const letters = cleaned.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
-      const isAllCaps = letters.length >= 3 && letters === letters.toUpperCase();
-      const isCap = letters.length >= 2 && letters[0] === letters[0]?.toUpperCase();
-
-      return {
-        raw: cleaned,
-        lower,
-        isHash,
-        isAt,
-        isAllCaps,
-        isCap
-      };
-    }).filter(x => x.raw && x.lower);
-  }
-
-  function extractEntityPhrases(words){
-    // Secuencias 2-4 palabras (Capitalized o ALLCAPS), permite conectores cortos dentro
-    const out = [];
-    const connectors = new Set(["de","del","la","las","los","y","e","da","do","of","the"]);
-
-    for (let i = 0; i < words.length; i++){
-      let parts = [];
-      let score = 0;
-      let j = i;
-      while (j < words.length && parts.length < 6){
-        const w = words[j];
-
-        const pure = w.lower.replace(/^#|^@/, "");
-        const isConnector = connectors.has(pure) && parts.length > 0;
-
-        if (w.isHash || w.isAt){
-          break;
-        }
-
-        if (w.isCap || w.isAllCaps){
-          parts.push(w.raw);
-          score++;
-          j++;
-          continue;
-        }
-
-        if (isConnector){
-          parts.push(w.raw);
-          j++;
-          continue;
-        }
-
-        break;
-      }
-
-      const normParts = parts.filter(p => p && p.length >= 2);
-      // Filtra conectores al final
-      while (normParts.length && connectors.has(normParts[normParts.length-1].toLowerCase())) normParts.pop();
-
-      // Elimina conectores duplicados y exige 2-4 “palabras reales”
-      const realWords = normParts.filter(p => !connectors.has(p.toLowerCase()));
-      if (realWords.length >= 2 && realWords.length <= 4 && score >= 2){
-        const phrase = normParts.join(" ").replace(/\s+/g," ").trim();
-        // Evita cosas tipo "El Gobierno" (demasiado genérico) si no hay apellido/segundo término claro
-        const lower = phrase.toLowerCase();
-        if (!/^(el|la|los|las)\s+(gobierno|presidente|ministro|ministerio)$/i.test(lower)){
-          out.push(phrase);
-        }
-      }
-    }
-
-    // dedup simple
-    return Array.from(new Set(out.map(x => x.trim()))).slice(0, 6);
-  }
-
-  function buildNgrams(tokensLower, n){
-    const out = [];
-    for (let i=0; i<=tokensLower.length-n; i++){
-      const chunk = tokensLower.slice(i, i+n);
-      if (chunk.some(t => isStop(t))) continue;
-      if (chunk.some(t => t.length < 3)) continue;
-      out.push(chunk.join(" "));
-    }
-    return out;
-  }
-
-  function classify(term, exampleTitle){
-    const t = safeLower(term);
-    const s = safeLower(exampleTitle);
-
-    const sportsKw = [
-      "liga","laliga","premier","champions","ucl","europa league","nba","nfl","mlb","fútbol","futbol","gol","derbi",
-      "real madrid","barça","barcelona","atleti","atlético","sevilla","valencia","betis","tenis","formula 1","f1"
-    ];
-
-    const polKw = [
-      "gobierno","congreso","senado","elecciones","presidente","ministro","ministerio","parlamento","partido",
-      "moncloa","pp","psoe","vox","sumar","podemos","ue","europea","ukraine","otan","nato","israel","gaza"
-    ];
-
-    const viralKw = [
-      "viral","meme","tiktok","streamer","influencer","youtuber","clip","trend","challenge","polémica","polémica",
-      "drama","filtrado","filtración","filtracion","se hace viral","reventar","rompe internet"
-    ];
-
-    const hit = (arr) => arr.some(k => s.includes(k) || t.includes(k));
-
-    if (hit(sportsKw)) return CAT.sports;
-    if (hit(polKw)) return CAT.politics;
-    if (hit(viralKw)) return CAT.viral;
-
-    // hashtags deportivos típicos
-    if (t.includes("#laliga") || t.includes("#ucl") || t.includes("#nba") || t.includes("#f1")) return CAT.sports;
-
-    return CAT.news;
-  }
-
-  function computeTrends(articles){
-    const map = new Map();   // key -> {term,label,count,score,...}
-    const sample = new Map();// key -> {title,url,source}
-
-    const add = (term, label, weight, a) => {
-      const key = safeLower(term).trim();
-      if (!key || key.length < 3) return;
-      if (isStop(key.replace(/^#|^@/,""))) return;
-      if (/^\d+$/.test(key)) return;
-
-      const prev = map.get(key);
-      if (!prev){
-        map.set(key, {
-          term,
-          label,
-          count: 1,
-          weight
-        });
-        sample.set(key, {
-          title: a.title || "",
-          url: a.url || "",
-          source: a.sourceCountry || a.sourceCollection || a.domain || ""
-        });
-      } else {
-        prev.count++;
-        // si aparece con mejor “forma” (más larga / más “humana”), actualiza label
-        if ((label?.length || 0) > (prev.label?.length || 0)) prev.label = label;
-        // weight medio (suave)
-        prev.weight = Math.max(prev.weight, weight);
-      }
-    };
-
-    for (const a of articles){
-      const title = a?.title || "";
-      if (!title) continue;
-
-      const words = splitWords(title);
-
-      // Hashtags / handles
-      for (const w of words){
-        if (w.isHash && w.lower.length >= 3) add(w.raw, w.raw, 2.1, a);
-        if (w.isAt && w.lower.length >= 3) add(w.raw, w.raw, 1.9, a);
-      }
-
-      // Entidades (capitalizadas)
-      const entities = extractEntityPhrases(words);
-      for (const e of entities){
-        add(e, e, 1.75, a);
-      }
-
-      // Tokens normalizados (para n-grams)
-      const toks = words
-        .map(w => w.lower.replace(/^#|^@/, ""))
-        .map(t => t.replace(/[\u2019']/g, ""))
-        .map(t => t.replace(/[^\p{L}\p{N}]+/gu, ""))
-        .filter(Boolean)
-        .filter(t => t.length >= 3)
-        .filter(t => !isStop(t));
-
-      // Unigrams (menos peso)
-      for (const t of toks){
-        add(t, titleCase(t), 1.0, a);
-      }
-
-      // Phrases 2-3 (trending phrases)
-      const grams2 = buildNgrams(toks, 2);
-      const grams3 = buildNgrams(toks, 3);
-
-      for (const g of grams2) add(g, smartTitleCase(g), 1.45, a);
-      for (const g of grams3) add(g, smartTitleCase(g), 1.60, a);
-    }
-
-    const items = Array.from(map.entries()).map(([key, v]) => {
-      const smp = sample.get(key) || {};
-      const isPhrase = v.term.includes(" ");
-      const isHash = v.term.startsWith("#");
-      const isAt = v.term.startsWith("@");
-
-      const lenBoost = isPhrase ? 1.15 : 1.0;
-      const specialBoost = isHash ? 1.25 : (isAt ? 1.10 : 1.0);
-
-      const score = (v.count * v.weight) * lenBoost * specialBoost;
-
-      const cat = classify(v.term, smp.title || "");
-
-      return {
-        term: v.term,
-        label: v.label,
-        count: v.count,
-        score,
-        category: cat,
-        exampleTitle: smp.title || "",
-        exampleUrl: smp.url || "",
-        exampleSource: smp.source || ""
-      };
-    });
-
-    items.sort((a,b) =>
-      (b.score - a.score) ||
-      (b.count - a.count) ||
-      a.term.localeCompare(b.term)
-    );
-
-    const top = items.slice(0, clamp(state.settings.maxTrends, 10, 60));
-    top.forEach((it, idx) => it.rank = idx + 1);
-
-    return top;
-  }
-
-  function titleCaseWord(w){
-    if (!w) return w;
-    return w.charAt(0).toUpperCase() + w.slice(1);
-  }
-
-  function smartTitleCase(phrase){
-    // respeta hashtags/handles, y title-case suave
-    if (!phrase) return phrase;
-    if (phrase.startsWith("#") || phrase.startsWith("@")) return phrase;
-    return phrase.split(" ").map(titleCaseWord).join(" ");
-  }
-
-  function titleCase(token){
-    if (!token) return token;
-    if (token.startsWith("#") || token.startsWith("@")) return token;
-    return titleCaseWord(token);
-  }
-
-  function loadLastRanks(){
-    try{
-      const raw = localStorage.getItem(CFG.LS_RANKS);
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (!Array.isArray(data?.items)) return;
-      state.lastRanks.clear();
-      for (const it of data.items){
-        if (it?.term) state.lastRanks.set(String(it.term), Number(it.rank));
-      }
-    }catch{}
-  }
-
-  function saveRanks(items){
-    try{
-      localStorage.setItem(CFG.LS_RANKS, JSON.stringify({
-        ts: Date.now(),
-        items: items.map(x => ({ term: x.term, rank: x.rank }))
-      }));
-    }catch{}
-  }
-
-  function computeDelta(term, rank){
-    const prev = state.lastRanks.get(String(term));
-    if (!prev) return { kind:"new", text:"NEW" };
-    if (prev === rank) return { kind:"", text:"=" };
-    if (rank < prev) return { kind:"up", text:`▲ ${prev-rank}` };
-    return { kind:"down", text:`▼ ${rank-prev}` };
-  }
-
-  function catBadge(cat){
-    if (cat === CAT.news) return { cls:"news", txt:"Noticias" };
-    if (cat === CAT.viral) return { cls:"viral", txt:"Viral" };
-    if (cat === CAT.politics) return { cls:"politics", txt:"Política" };
-    if (cat === CAT.sports) return { cls:"sports", txt:"Deportes" };
-    return { cls:"news", txt:"Noticias" };
-  }
-
-  function render(items){
-    if (!elList) return;
-
-    elList.innerHTML = "";
-    elEmpty?.classList.toggle("hidden", items.length !== 0);
-
-    const frag = document.createDocumentFragment();
-
-    items.forEach((it, i) => {
-      const d = computeDelta(it.term, it.rank);
-      const fav = state.favs.has(String(it.term));
-      const cb = catBadge(it.category);
-
-      const row = document.createElement("div");
-      row.className = "trend";
-      row.style.animationDelay = `${clamp(i * 22, 0, 280)}ms`;
-
-      row.innerHTML = `
-        <div class="rank">${it.rank}</div>
-
-        <div class="tMain">
-          <div class="tTitleRow">
-            <div class="tTitle" title="${escapeHtml(it.label)}">${escapeHtml(it.label)}</div>
-            <span class="catBadge ${cb.cls}">${escapeHtml(cb.txt)}</span>
-          </div>
-          <div class="tMeta">
-            <span class="badge"><span class="delta ${d.kind}">${escapeHtml(d.text)}</span></span>
-            <span class="badge">${escapeHtml(String(it.count))} menciones</span>
-            ${it.exampleSource ? `<span class="badge">${escapeHtml(it.exampleSource)}</span>` : ""}
-          </div>
-        </div>
-
-        <div class="actions">
-          <button class="aBtn star ${fav ? "isFav":""}" data-fav="${encodeURIComponent(it.term)}"
-                  title="${fav ? "Quitar de favoritos":"Guardar en favoritos"}">${fav ? "★":"☆"}</button>
-          <button class="aBtn primary" data-x="${encodeURIComponent(it.term)}" title="Buscar en X">Ver en X</button>
-          <button class="aBtn" data-more="1" title="Ver ejemplo">Ejemplo</button>
-        </div>
-      `;
-
-      row.querySelector('[data-x]')?.addEventListener("click", (e) => {
-        const q = e.currentTarget.getAttribute("data-x") || "";
-        window.open(`https://x.com/search?q=${q}`, "_blank", "noreferrer");
-      });
-
-      row.querySelector('[data-more]')?.addEventListener("click", () => {
-        const url = it.exampleUrl || "";
-        if (url) window.open(url, "_blank", "noreferrer");
-        else if (it.exampleTitle) alert(it.exampleTitle);
-      });
-
-      row.querySelector('[data-fav]')?.addEventListener("click", () => {
-        toggleFav(it.term, it.label);
-      });
-
-      frag.appendChild(row);
-    });
-
-    elList.appendChild(frag);
-  }
-
-  function applyFilter(){
-    const q = safeLower(inpQ?.value || "").trim();
-
-    let list = state.all.slice();
-
-    // vista
-    if (state.view === "favs"){
-      list = list.filter(x => state.favs.has(String(x.term)));
-    }
-
-    // categoría
-    if (state.category !== "all"){
-      list = list.filter(x => x.category === state.category);
-    }
-
-    // texto
-    if (q){
-      list = list.filter(x =>
-        safeLower(x.term).includes(q) ||
-        safeLower(x.label).includes(q)
-      );
-    }
-
-    state.filtered = list;
-    render(state.filtered);
-
-    // ticker
-    updateTicker();
-  }
-
-  async function fetchJson(url){
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
-  function maybeFavRankAlerts(newItems){
-    if (!state.settings.alertsEnabled) return;
-    if (!state.favs.size) return;
-
-    // si un favorito entra en top o sube fuerte, alerta
-    for (const it of newItems){
-      if (!state.favs.has(String(it.term))) continue;
-      const prev = state.lastRanks.get(String(it.term));
-      if (!prev){
-        toast("Favorito en ranking", it.label);
-      } else if (it.rank <= prev - 5){
-        toast("Favorito subiendo", `${it.label} (▲ ${prev - it.rank})`);
-      }
-    }
-  }
-
-  async function refresh(){
-    clearError();
-    setNet(navigator.onLine);
-
-    // prev ranks
-    loadLastRanks();
-
-    const url = buildUrl();
-
-    try{
-      // corta fetch anterior
-      if (state.abort) state.abort.abort();
-      state.abort = new AbortController();
-
-      // mini “latencia humana”
-      await sleep(120);
-
-      const data = await fetchJson(url);
-
-      const articles = Array.isArray(data?.articles) ? data.articles : [];
-      if (!articles.length){
-        state.all = [];
-        state.filtered = [];
-        render([]);
-        setLastUpdated();
-        saveRanks([]);
-        updateTicker();
-        return;
-      }
-
-      const trends = computeTrends(articles);
-
-      // alertas favoritas comparando con prev ranks
-      maybeFavRankAlerts(trends);
-
-      state.all = trends;
-      applyFilter();
-      setLastUpdated();
-
-      saveRanks(trends);
-
-    }catch(err){
-      showError(
-        "No pude actualizar tendencias ahora mismo. " +
-        "Puede ser rate-limit o un corte puntual de la fuente. " +
-        "Prueba en 1–2 min o cambia ventana/idioma."
-      );
-      if (!state.all.length) render([]);
-    }
-  }
-
-  function schedule(){
-    if (state.timer) clearTimeout(state.timer);
-
-    if (!state.settings.autoRefresh) return;
-
-    const jitter = Math.floor((Math.random() * 2 - 1) * state.settings.refreshJitterMs);
-    const wait = clamp(state.settings.refreshEveryMs + jitter, CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
-
-    state.timer = setTimeout(async () => {
-      await refresh();
-      schedule();
-    }, wait);
-  }
-
-  function setActiveTab(container, selectorAttr, value){
+  /* ───────────────────────────── TABS / MODAL / TICKER ───────────────────────────── */
+  function setActiveTab(container, attr, value){
     if (!container) return;
-    const btns = Array.from(container.querySelectorAll(".tab"));
-    for (const b of btns){
-      const v = b.getAttribute(selectorAttr);
-      const active = v === value;
+    const btns = container.querySelectorAll(".tab");
+    btns.forEach(b => {
+      const v = b.getAttribute(attr);
+      const active = (v === value);
       b.classList.toggle("isActive", active);
       b.setAttribute("aria-selected", active ? "true" : "false");
-    }
+    });
   }
 
   function bindTabs(){
@@ -832,7 +611,6 @@
     if (!cfgModal) return;
     cfgModal.classList.remove("hidden");
   }
-
   function closeConfig(){
     if (!cfgModal) return;
     cfgModal.classList.add("hidden");
@@ -858,10 +636,14 @@
       state.settings.tickerEnabled = !!cfgTicker?.checked;
       state.settings.tickerSpeedSec = tickerSec;
 
+      // persist selects too (por si cambiaron)
+      state.settings.lang = pickLang();
+      state.settings.window = pickTimespan();
+      state.settings.geo = pickGeo();
+
       saveSettings();
       applySettingsToUI();
 
-      // refresca scheduling y render
       schedule();
       applyFilter();
 
@@ -894,7 +676,7 @@
     state.settings.tickerEnabled = !state.settings.tickerEnabled;
     saveSettings();
     applySettingsToUI();
-    toast("Ticker", state.settings.tickerEnabled ? "Activado" : "Desactivado");
+    if (state.settings.alertsEnabled) toast("Ticker", state.settings.tickerEnabled ? "Activado" : "Desactivado");
   }
 
   function updateTicker(){
@@ -905,26 +687,22 @@
     }
 
     const base = state.filtered.length ? state.filtered : state.all;
-    const top = base.slice(0, Math.min(18, base.length));
-
-    if (!top.length){
-      tickerTrack.innerHTML = `<span class="tickerItem">Sin datos…</span>`;
-      return;
-    }
+    const top = base.slice(0, clamp(state.settings.maxTrends, 10, 60));
 
     const html = top.map((it, idx) => {
-      const q = encodeURIComponent(it.term);
-      const sep = (idx === top.length - 1) ? "" : `<span class="tickerSep">•</span>`;
+      const q = encodeURIComponent(it.label);
+      const sep = (idx < top.length - 1) ? `<span class="tickerSep">•</span>` : `<span class="tickerSep">•</span>`;
       return `
-        <a class="tickerItem" href="https://x.com/search?q=${q}" target="_blank" rel="noreferrer">
+        <a class="tickerItem" href="${CFG.X_SEARCH}${q}" target="_blank" rel="noreferrer">
           ${escapeHtml(it.label)}
         </a>
         ${sep}
       `;
     }).join("");
 
-    // “reinicia” animación cambiando el nodo (simple y efectivo)
     tickerTrack.innerHTML = html;
+
+    // reinicia animación
     tickerTrack.style.animation = "none";
     // eslint-disable-next-line no-unused-expressions
     tickerTrack.offsetHeight;
@@ -940,7 +718,297 @@
     });
   }
 
+  /* ───────────────────────────── COMPUTE TRENDS ───────────────────────────── */
+  function computeTrends(articles){
+    const freq = new Map();      // term -> score accumulator
+    const meta = new Map();      // term -> {label, exampleUrl, sampleTitle, rawFreq}
+
+    const add = (term, label, weight, exampleUrl, sampleTitle) => {
+      if (!term || !label) return;
+      const key = String(term);
+      const prev = freq.get(key) || 0;
+      freq.set(key, prev + weight);
+
+      if (!meta.has(key)){
+        meta.set(key, { label, exampleUrl: exampleUrl || "", sampleTitle: sampleTitle || "", rawFreq: 0 });
+      }
+      const m = meta.get(key);
+      m.rawFreq += 1;
+      if (!m.exampleUrl && exampleUrl) m.exampleUrl = exampleUrl;
+      if (!m.sampleTitle && sampleTitle) m.sampleTitle = sampleTitle;
+    };
+
+    for (const a of articles){
+      const title = a?.title || "";
+      const url = a?.url || "";
+      if (!title) continue;
+
+      const words = splitWords(title);
+
+      // hashtags y mentions
+      for (const w of words){
+        if (w.isHash && w.base && !isStop(w.base)){
+          add(w.norm, w.raw, 2.2, url, title);
+        }else if (w.isAt && w.base && !isStop(w.base)){
+          add(w.norm, w.raw, 1.6, url, title);
+        }
+      }
+
+      // entidades
+      const entities = extractEntityPhrases(words);
+      for (const e of entities){
+        const norm = normalizeToken(e);
+        if (!norm) continue;
+        if (isStop(norm)) continue;
+        add(norm, e, 1.4, url, title);
+      }
+
+      // frases (2-4)
+      const grams = extractNgrams(words, 2, 4);
+      for (const g of grams){
+        const norm = normalizeToken(g);
+        if (!norm) continue;
+        add(norm, g, 1.15, url, title);
+      }
+
+      // tokens sueltos (solo si son fuertes)
+      for (const w of words){
+        if (w.isHash || w.isAt) continue;
+        const base = normalizeToken(w.raw);
+        if (!base || isStop(base)) continue;
+        if (base.length < 4) continue;
+        add(base, w.raw, 0.55, url, title);
+      }
+    }
+
+    const scored = [...freq.entries()].map(([term, score]) => {
+      const m = meta.get(term) || {};
+      const label = m.label || term;
+      const sampleTitle = m.sampleTitle || "";
+      const exampleUrl = m.exampleUrl || "";
+
+      const cat = classify(label, sampleTitle);
+
+      // score final suavizado para estabilidad
+      const finalScore = score * 10;
+
+      return {
+        term,
+        label,
+        score: Math.round(finalScore),
+        rawFreq: m.rawFreq || 0,
+        cat,
+        exampleUrl
+      };
+    });
+
+    // orden y recorte
+    scored.sort((a,b) => b.score - a.score);
+
+    // dedupe leve: si un hashtag y su versión sin # compiten, deja el que tenga más score
+    const seen = new Set();
+    const out = [];
+    for (const it of scored){
+      const key = safeLower(it.label).replace(/^#/, "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(it);
+      if (out.length >= clamp(state.settings.maxTrends, 10, 60)) break;
+    }
+
+    // añade delta badge info aquí (dependiente de ranks)
+    return out;
+  }
+
+  /* ───────────────────────────── RENDER ───────────────────────────── */
+  function render(items){
+    if (!elList) return;
+
+    elList.innerHTML = "";
+    const frag = document.createDocumentFragment();
+
+    items.forEach((it, idx) => {
+      const rank = idx + 1;
+      const delta = deltaBadge(it.term, rank);
+
+      const isFav = state.favs.has(String(it.term));
+      const catLabel = (it.cat && it.cat !== "all") ? (CAT_LABEL[it.cat] || "") : "";
+
+      const node = document.createElement("div");
+      node.className = "trend";
+      node.style.animationDelay = `${Math.min(idx * 10, 160)}ms`;
+
+      const xq = encodeURIComponent(it.label);
+      const xUrl = `${CFG.X_SEARCH}${xq}`;
+
+      const exampleBtn = it.exampleUrl
+        ? `<a class="aBtn" href="${escapeHtml(it.exampleUrl)}" target="_blank" rel="noreferrer">Ejemplo</a>`
+        : ``;
+
+      node.innerHTML = `
+        <div class="rank">${rank}</div>
+        <div class="tBody">
+          <div class="tTop">
+            <div class="tLabel">${escapeHtml(it.label)}</div>
+            <div class="tBadges">
+              <span class="delta ${delta.cls}">${escapeHtml(delta.txt)}</span>
+              ${catLabel ? `<span class="cat">${escapeHtml(catLabel)}</span>` : ``}
+            </div>
+          </div>
+          <div class="tMeta">
+            <span>${escapeHtml(String(it.rawFreq || 0))} menciones</span>
+            <span class="dotSep">•</span>
+            <span>score ${escapeHtml(String(it.score || 0))}</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="aBtn favBtn ${isFav ? "isFav" : ""}" type="button" title="Guardar favorito" aria-label="Favorito">
+            ${isFav ? "★" : "☆"}
+          </button>
+          <a class="aBtn primary" href="${xUrl}" target="_blank" rel="noreferrer">Ver en X</a>
+          ${exampleBtn}
+        </div>
+      `;
+
+      node.querySelector(".favBtn")?.addEventListener("click", () => toggleFav(it.term, it.label));
+
+      frag.appendChild(node);
+    });
+
+    elList.appendChild(frag);
+
+    // empty
+    const has = items.length > 0;
+    if (elEmpty) elEmpty.classList.toggle("hidden", has);
+    updateTicker();
+  }
+
+  function applyFilter(){
+    const q = safeLower(inpQ?.value || "").trim();
+
+    let arr = state.all.slice();
+
+    // view favs
+    if (state.view === "favs"){
+      arr = arr.filter(it => state.favs.has(String(it.term)));
+    }
+
+    // category
+    if (state.category && state.category !== "all"){
+      arr = arr.filter(it => it.cat === state.category);
+    }
+
+    // search
+    if (q){
+      arr = arr.filter(it => safeLower(it.label).includes(q));
+    }
+
+    state.filtered = arr;
+    render(arr);
+  }
+
+  /* ───────────────────────────── ALERTAS “SUAVES” PARA FAVORITOS ───────────────────────────── */
+  function favRankAlerts(trends){
+    if (!state.settings.alertsEnabled) return;
+    if (!state.favs.size) return;
+
+    const newRanks = new Map();
+    trends.forEach((t, idx) => newRanks.set(String(t.term), idx + 1));
+
+    // Si un favorito entra en Top o sube fuerte
+    for (const fav of state.favs){
+      const nr = newRanks.get(String(fav));
+      if (!nr) continue;
+
+      const old = state.lastRanks.get(String(fav));
+      if (!old){
+        toast("Favorito en ranking", `Entró al Top: #${nr}`);
+      }else{
+        const diff = old - nr;
+        if (diff >= 5){
+          toast("Favorito subiendo", `▲${diff} posiciones (ahora #${nr})`);
+        }
+      }
+    }
+  }
+
+  /* ───────────────────────────── REFRESH / SCHEDULER ───────────────────────────── */
+  async function refresh(){
+    if (state.refreshing) return;
+    state.refreshing = true;
+
+    clearError();
+
+    // abort previo
+    if (state.abort){
+      try{ state.abort.abort(); }catch{}
+    }
+    state.abort = new AbortController();
+
+    try{
+      const url = buildUrl();
+      const res = await fetchWithTimeout(url, CFG.FETCH_TIMEOUT_MS, state.abort.signal);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json().catch(() => ({}));
+      const articles = Array.isArray(data?.articles) ? data.articles : [];
+      if (!articles.length){
+        state.all = [];
+        state.filtered = [];
+        render([]);
+        setLastUpdated();
+        saveRanks([]);
+        return;
+      }
+
+      const trends = computeTrends(articles);
+
+      // alertas de favs comparando con lastRanks (antes de saveRanks)
+      favRankAlerts(trends);
+
+      state.all = trends;
+      applyFilter();
+      setLastUpdated();
+
+      saveRanks(trends);
+
+    }catch(err){
+      if (err?.name === "AbortError"){
+        // silencioso (refresh nuevo)
+      }else{
+        showError(
+          "No pude actualizar tendencias ahora mismo. " +
+          "Puede ser rate-limit o un corte puntual de la fuente. " +
+          "Prueba en 1–2 min o cambia ventana/idioma."
+        );
+        if (!state.all.length) render([]);
+      }
+    }finally{
+      state.refreshing = false;
+    }
+  }
+
+  function schedule(){
+    if (state.timer) clearTimeout(state.timer);
+    if (!state.settings.autoRefresh) return;
+
+    const every = clamp(Number(state.settings.refreshEveryMs || DEFAULT_SETTINGS.refreshEveryMs), CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
+    const jitterMax = clamp(Number(state.settings.refreshJitterMs || DEFAULT_SETTINGS.refreshJitterMs), 0, 60_000);
+    const jitter = Math.floor((Math.random() * 2 - 1) * jitterMax);
+    const wait = clamp(every + jitter, CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
+
+    state.timer = setTimeout(async () => {
+      await refresh();
+      schedule();
+    }, wait);
+  }
+
+  /* ───────────────────────────── BIND ───────────────────────────── */
   function bind(){
+    if (state.bound) return;
+    state.bound = true;
+
     btnRefresh?.addEventListener("click", async () => {
       await refresh();
       schedule();
@@ -980,23 +1048,27 @@
     bindTabs();
     bindConfig();
     bindTicker();
-  }
 
-  async function boot(){
-    // carga settings/favs/compact
-    loadSettings();
-    loadFavs();
-    loadCompact();
-
-    // refleja selects en settings por si vienes “limpio”
-    state.settings.lang = pickLang();
-    state.settings.window = pickTimespan();
-    state.settings.geo = pickGeo();
-
-    applySettingsToUI();
+    // Estados iniciales tabs
     setActiveTab(tabsView, "data-view", state.view);
     setActiveTab(tabsCat, "data-cat", state.category);
+  }
 
+  /* ───────────────────────────── BOOT ───────────────────────────── */
+  async function boot(){
+    applyPngLogoIfAvailable();
+
+    loadSettings();
+    loadFavs();
+    loadLastRanks();
+    loadCompact();
+
+    // refleja selects
+    state.settings.lang = state.settings.lang || pickLang();
+    state.settings.window = state.settings.window || pickTimespan();
+    state.settings.geo = state.settings.geo || pickGeo();
+
+    applySettingsToUI();
     bind();
     setNet(navigator.onLine);
 
