@@ -1,5 +1,7 @@
 # GlobalEye Trends (GitHub Pages) — App estilo X
 
+Page: https://ojete-blog.github.io/Ojete-Blog/
+
 **GlobalEye Trends** es una mini-app web con estética **inspirada en X (dark, limpia, profesional)** que muestra:
 
 - Un panel central de **tendencias “ahora”** (ranking).
