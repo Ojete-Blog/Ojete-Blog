@@ -5,29 +5,32 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
   <meta name="theme-color" content="#05060A" />
-  <meta name="description" content="Panel estilo X: tendencias en tiempo real + timeline de @GlobalEye_TV. 100% GitHub Pages." />
+  <meta name="description" content="Panel estilo X: tendencias en tiempo real (open data) + timeline de @GlobalEye_TV. 100% GitHub Pages." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
 
   <title>GlobalEye • Trends</title>
 
-  <!-- Performance (no rompe nada) -->
+  <!-- Performance -->
   <link rel="preconnect" href="https://platform.twitter.com" crossorigin />
   <link rel="dns-prefetch" href="//platform.twitter.com" />
 
-  <!-- Favicon / App icons (PNG transparente + fallback JPG) -->
-  <link rel="icon" href="./logo_ojo_png.png" />
-  <link rel="icon" href="./logo_ojo.jpg" />
-  <link rel="apple-touch-icon" href="./logo_ojo_png.png" />
-  <link rel="apple-touch-icon" href="./logo_ojo.jpg" />
-
+  <!-- Manifest + CSS -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Icons (prefer PNG, fallback JPG) -->
+  <link rel="icon" type="image/png" href="./logo_ojo_png.png" />
+  <link rel="icon" type="image/jpeg" href="./logo_ojo.jpg" />
+  <link rel="apple-touch-icon" href="./logo_ojo_png.png" />
+
+  <!-- App -->
   <script defer src="./app.js"></script>
 </head>
 
 <body>
   <noscript>
     <div class="noscript">
+      Necesitas JavaScript activado para ver tendencias y el timeline.
     </div>
   </noscript>
 
@@ -54,7 +57,7 @@
         />
         <div class="heroTxt">
           <div class="heroTitle">OJO OJITO OJETE</div>
-          <div class="heroSub">• BLOG OFICIAL</div>
+          <div class="heroSub">@GlobalEye_TV • BLOG OFICIAL</div>
         </div>
       </div>
 
@@ -136,7 +139,7 @@
         </a>
 
         <div class="hint">
-          <!-- (opcional) Puedes poner aquí una frase corta tipo: "Open data + salto a X con 1 click" -->
+          <!-- Sugerencia opcional: "Open data + salto a X con 1 click" -->
         </div>
       </div>
     </aside>
@@ -227,7 +230,7 @@
              href="https://x.com/GlobalEye_TV"
              data-theme="dark"
              data-chrome="noheader nofooter noborders transparent"
-             data-tweet-limit="8">
+             data-tweet-limit="20">
             Posts by @GlobalEye_TV
           </a>
         </div>

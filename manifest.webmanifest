@@ -1,21 +1,21 @@
 {
-  "name": "OJO OJITO OJETE",
-  "short_name": "OOO TRENDS",
+  "name": "GlobalEye Trends",
+  "short_name": "GE Trends",
+  "lang": "es",
   "start_url": "./?source=pwa",
   "scope": "./",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#05060A",
   "theme_color": "#05060A",
-  "description": "Panel estilo X: tendencias en tiempo real + timeline de @GlobalEye_TV. 100% GitHub Pages.",
-  "lang": "es",
-  "dir": "ltr",
-  "categories": ["news", "social", "productivity"],
-  "orientation": "any",
-  "prefer_related_applications": false,
-
+  "description": "Panel estilo X: tendencias en tiempo real (open data) + timeline de @GlobalEye_TV. 100% GitHub Pages.",
   "icons": [
     {
+      "src": "./logo_ojo_favicon.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "./logo_ojo_png.png",
       "sizes": "192x192",
       "type": "image/png",
@@ -25,40 +25,7 @@
       "src": "./logo_ojo_png.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./logo_ojo_png.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "./logo_ojo_png.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
-  ],
-
-  "shortcuts": [
-    {
-      "name": "Tendencias ahora",
-      "short_name": "Tendencias",
-      "url": "./?view=trends",
-      "icons": [{ "src": "./logo_ojo_png.png", "sizes": "192x192", "type": "image/png" }]
-    },
-    {
-      "name": "Explorar en X",
-      "short_name": "Explorar",
-      "url": "https://x.com/explore",
-      "icons": [{ "src": "./logo_ojo_png.png", "sizes": "192x192", "type": "image/png" }]
-    },
-    {
-      "name": "Donar en Ko-fi",
-      "short_name": "Ko-fi",
-      "url": "https://ko-fi.com/global_eye",
-      "icons": [{ "src": "./logo_ojo_png.png", "sizes": "192x192", "type": "image/png" }]
+      "purpose": "any maskable"
     }
   ]
 }

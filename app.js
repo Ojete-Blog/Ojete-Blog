@@ -1,16 +1,19 @@
-/* app.js — Ojete Blog / GlobalEye Trends — v1.2.0 (HARDENED + PNG LOGO + NO DUPES)
-   ✅ 100% compatible con tu index.html actual (IDs, tabs, modal, ticker, etc.)
-   ✅ Usa logo_ojo_png.png (transparente) automáticamente para logos + favicon, fallback a jpg
-   ✅ Anti-duplicidades: guard de carga + listeners únicos + timers únicos + AbortController
-   ✅ Mejora entidades (nombres propios) + trending phrases (2–4 palabras)
-   ✅ Favoritos + alertas suaves + modo ticker + config panel estable
+/* app.js — Ojete Blog / GlobalEye Trends — v1.3.0
+   ✅ 100% compatible con tu index.html (IDs: list/empty/err/q/selLang/selWindow/selGeo/tabsView/tabsCat/tickerBar/tickerTrack/cfgModal...)
+   ✅ PNG transparente auto (logo_ojo_png.png) para logos + favicon (fallback a jpg)
+   ✅ Anti-duplicidades: guard + listeners únicos + timers únicos + AbortController
+   ✅ Tendencias: entidades (nombres propios) + trending phrases (2–4 palabras) + hashtags/@mentions
+   ✅ Heurísticas: Noticias / Viral / Política / Deportes
+   ✅ Favoritos + alertas suaves + modo ticker + panel configuración
+   ✅ AUTO-UPDATE: si hay SW nuevo -> SKIP_WAITING -> reload automático (sin bucles)
+   ✅ Timeline: intenta “rescatar” widgets.js si a veces no pinta el embed
 */
 
 (() => {
   "use strict";
 
   /* ───────────────────────────── GUARD ANTI DOBLE CARGA ───────────────────────────── */
-  const APP_TAG = "ojete-trends:v1.2.0";
+  const APP_TAG = "ojete-trends:v1.3.0";
   try{
     if (window.__OJETE_TRENDS_APP__?.tag === APP_TAG) return;
     window.__OJETE_TRENDS_APP__ = { tag: APP_TAG, startedAt: Date.now() };
@@ -21,21 +24,28 @@
     gdeltBase: "https://api.gdeltproject.org/api/v2/doc/doc",
     X_SEARCH: "https://x.com/search?q=",
 
-    // Branding
+    // Branding (local)
     logoPng: "./logo_ojo_png.png",
     logoJpg: "./logo_ojo.jpg",
     toastGif: "./logo_ojo_gif.gif",
 
     // LocalStorage
-    LS_SETTINGS: "ojete_trends_settings_v2",
-    LS_FAVS: "ojete_trends_favs_v2",
-    LS_RANKS: "ojete_trends_ranks_v2",
-    LS_COMPACT: "ojete_trends_compact_v2",
+    LS_SETTINGS: "ojete_trends_settings_v3",
+    LS_FAVS: "ojete_trends_favs_v3",
+    LS_RANKS: "ojete_trends_ranks_v3",
+    LS_COMPACT: "ojete_trends_compact_v3",
 
+    // Scheduler
     MIN_REFRESH_MS: 35_000,
     MAX_REFRESH_MS: 900_000,
 
-    FETCH_TIMEOUT_MS: 12_500
+    // Network
+    FETCH_TIMEOUT_MS: 12_500,
+
+    // SW auto-update
+    SW_URL: "./sw.js",
+    SW_UPDATE_EVERY_MS: 8 * 60_000, // 8 min
+    SS_SW_RELOADED: "ojete_sw_reloaded_once"
   };
 
   /* ───────────────────────────── DOM ───────────────────────────── */
@@ -95,14 +105,7 @@
     "about","after","before"
   ]);
 
-  const CAT = {
-    all: "all",
-    news: "news",
-    viral: "viral",
-    politics: "politics",
-    sports: "sports"
-  };
-
+  const CAT = { all:"all", news:"news", viral:"viral", politics:"politics", sports:"sports" };
   const CAT_LABEL = {
     [CAT.news]: "Noticias",
     [CAT.viral]: "Viral",
@@ -125,7 +128,7 @@
     tickerEnabled: false,
     tickerSpeedSec: 28,
 
-    // UI selects persistidos
+    // persist selects
     lang: "spanish",   // spanish | english | mixed
     window: "4H",      // 2H | 4H | 6H | 12H
     geo: "ES"          // ES | GLOBAL (heurístico)
@@ -138,6 +141,7 @@
     timer: null,
     abort: null,
     refreshing: false,
+    failCount: 0,
 
     lastRanks: new Map(),
     favs: new Set(),
@@ -148,12 +152,14 @@
 
     settings: { ...DEFAULT_SETTINGS },
 
-    bound: false
+    bound: false,
+    swReg: null,
+    swTick: null
   };
 
   /* ───────────────────────────── UTILS ───────────────────────────── */
-  function safeLower(s){ return String(s || "").toLowerCase(); }
-  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+  const safeLower = (s) => String(s || "").toLowerCase();
+  const clamp = (n,a,b) => Math.max(a, Math.min(b, n));
 
   function escapeHtml(s){
     return String(s ?? "")
@@ -186,11 +192,57 @@
     elErr.classList.add("hidden");
     elErr.textContent = "";
   }
-
   function showError(msg){
     if (!elErr) return;
     elErr.classList.remove("hidden");
     elErr.textContent = msg;
+  }
+
+  function setLoading(on){
+    if (!elList) return;
+    elList.setAttribute("aria-busy", on ? "true" : "false");
+    if (btnRefresh) btnRefresh.disabled = !!on;
+    document.body.classList.toggle("isLoading", !!on);
+
+    if (on && !state.all.length){
+      // skeleton simple
+      elList.innerHTML = `
+        <div class="trend" style="opacity:.55">
+          <div class="rank">…</div>
+          <div class="tBody">
+            <div class="tTop"><div class="tLabel">Cargando tendencias…</div></div>
+            <div class="tMeta"><span>Esperando datos</span></div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  /* ───────────────────────────── TOASTS ───────────────────────────── */
+  function toast(title, msg){
+    if (!toastHost) return;
+
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `
+      <img class="toastImg" src="${CFG.toastGif}" alt="" />
+      <div class="toastRow">
+        <div class="toastTitle">${escapeHtml(title)}</div>
+        <div class="toastMsg">${escapeHtml(msg)}</div>
+      </div>
+      <button class="toastX" type="button" aria-label="Cerrar">✕</button>
+    `;
+
+    const kill = () => {
+      el.style.transition = "opacity .14s ease, transform .14s ease";
+      el.style.opacity = "0";
+      el.style.transform = "translateY(8px)";
+      setTimeout(() => el.remove(), 170);
+    };
+
+    el.querySelector(".toastX")?.addEventListener("click", kill, { once:true });
+    toastHost.appendChild(el);
+    setTimeout(kill, 3600);
   }
 
   /* ───────────────────────────── BRANDING PNG (AUTO) ───────────────────────────── */
@@ -201,15 +253,14 @@
     const img = new Image();
     img.onload = () => {
       // Logos visibles
-      const imgs = document.querySelectorAll("img.heroLogo, img.logoImg");
-      imgs.forEach(el => {
-        el.src = png;
-        // PNG transparente: mejor "contain" para no cortar
-        try{
-          el.style.objectFit = "contain";
-          el.style.background = "transparent";
-        }catch{}
-      });
+      document.querySelectorAll("img.heroLogo, img.logoImg, img.tickerLogo")
+        .forEach(el => {
+          el.src = png;
+          try{
+            el.style.objectFit = "contain";
+            el.style.background = "transparent";
+          }catch{}
+        });
 
       // Favicon / Apple touch
       const icon = document.querySelector('link[rel="icon"]');
@@ -219,9 +270,8 @@
       if (apple) apple.href = png;
     };
     img.onerror = () => {
-      // fallback por si el PNG no existe
-      const imgs = document.querySelectorAll("img.heroLogo, img.logoImg");
-      imgs.forEach(el => { el.src = jpg; });
+      document.querySelectorAll("img.heroLogo, img.logoImg, img.tickerLogo")
+        .forEach(el => { el.src = jpg; });
     };
     img.src = png;
   }
@@ -229,17 +279,14 @@
   /* ───────────────────────────── SELECTS ───────────────────────────── */
   function pickTimespan(){
     const v = String(selWindow?.value || state.settings.window || "4H").toUpperCase();
-    if (["2H","4H","6H","12H"].includes(v)) return v;
-    return "4H";
+    return (["2H","4H","6H","12H"].includes(v)) ? v : "4H";
   }
-
   function pickLang(){
     const v = String(selLang?.value || state.settings.lang || "spanish").toLowerCase();
     if (v === "mixed") return "mixed";
     if (v === "english") return "english";
     return "spanish";
   }
-
   function pickGeo(){
     const v = String(selGeo?.value || state.settings.geo || "ES").toUpperCase();
     return (v === "GLOBAL") ? "GLOBAL" : "ES";
@@ -250,11 +297,11 @@
     const lang = pickLang();
     const geo = pickGeo();
 
-    // “ES” aquí = foco hispano (sourcelang:spanish). GLOBAL abre un poco señal.
     let q;
     if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
     else q = `sourcelang:${lang}`;
 
+    // “GLOBAL” abre señal un poco
     if (geo === "GLOBAL" && lang === "spanish"){
       q = `(sourcelang:spanish OR sourcelang:english)`;
     }
@@ -275,8 +322,8 @@
   async function fetchWithTimeout(url, ms, signal){
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
-    const onAbort = () => ctrl.abort();
 
+    const onAbort = () => ctrl.abort();
     try{
       if (signal) signal.addEventListener("abort", onAbort, { once:true });
       const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
@@ -290,8 +337,8 @@
   /* ───────────────────────────── TOKENS / ENTIDADES / FRASES ───────────────────────────── */
   function normalizeToken(t){
     return safeLower(t)
-      .replace(/[\u2019']/g, "")          // apostrofes
-      .replace(/[^\p{L}\p{N}#@]+/gu, "")  // solo letras/números/#/@
+      .replace(/[\u2019']/g, "")
+      .replace(/[^\p{L}\p{N}#@]+/gu, "")
       .trim();
   }
 
@@ -304,7 +351,6 @@
     const lang = pickLang();
     if (lang === "english") return STOP_EN.has(t);
     if (lang === "spanish") return STOP_ES.has(t);
-    // mixed
     return STOP_ES.has(t) || STOP_EN.has(t);
   }
 
@@ -325,18 +371,10 @@
       const base = norm.replace(/^[@#]/,"");
       const cap = /^[A-ZÁÉÍÓÚÜÑ]/.test(clean) && !isHash && !isAt;
 
-      return {
-        raw: clean,
-        norm,
-        base,
-        cap,
-        isHash,
-        isAt
-      };
+      return { raw: clean, norm, base, cap, isHash, isAt };
     }).filter(x => x.norm);
   }
 
-  // Entidades: secuencias tipo "Nombre Apellido" permitiendo conectores "de/del/la/los/las/y"
   function extractEntityPhrases(words){
     const connectors = new Set(["de","del","la","las","los","y","da","do","dos","das"]);
     const out = [];
@@ -349,39 +387,27 @@
       const start = i;
       let end = i;
 
-      // consume (Cap) (connector) (Cap) ...
       while (end + 1 < words.length){
         const next = words[end + 1];
         const n = next.norm.replace(/^[@#]/,"");
 
-        if (next.cap && !isStop(next.norm)){
-          end++;
-          continue;
-        }
+        if (next.cap && !isStop(next.norm)){ end++; continue; }
 
-        // conector entre caps
         if (!next.isHash && !next.isAt && connectors.has(n) && end + 2 < words.length){
           const after = words[end + 2];
-          if (after.cap && !isStop(after.norm)){
-            end += 2;
-            continue;
-          }
+          if (after.cap && !isStop(after.norm)){ end += 2; continue; }
         }
         break;
       }
 
-      // mínimo 2 tokens para evitar "Lunes" etc
       if (end > start){
         const phrase = words.slice(start, end + 1).map(x => x.raw).join(" ").trim();
         const normPhrase = normalizeToken(phrase);
-        if (normPhrase && normPhrase.length >= 5){
-          out.push(phrase);
-        }
+        if (normPhrase && normPhrase.length >= 5) out.push(phrase);
       }
 
       i = end + 1;
     }
-
     return out;
   }
 
@@ -396,15 +422,11 @@
       for (let i = 0; i <= toks.length - n; i++){
         const slice = toks.slice(i, i + n);
         if (slice.some(isStop)) continue;
-
-        // evita frases compuestas solo por números
         if (slice.every(x => /^[0-9]+$/.test(x))) continue;
-
-        // al menos un token “fuerte”
         if (!slice.some(x => x.length >= 4 && !isStop(x))) continue;
 
         const phrase = slice.join(" ");
-        if (phrase.length >= 6) grams.push(phrase);
+        if (phrase.length >= 6 && phrase.length <= 60) grams.push(phrase);
       }
     }
     return grams;
@@ -416,17 +438,14 @@
 
     const sports =
       /\b(liga|laliga|champions|europa league|premier|nba|nfl|mlb|f1|formula 1|gran premio|gp|goles|gol|partido|derbi|clásico|madrid|barça|barcelona|atleti|atlético|sevilla|valencia|betis)\b/.test(s);
-
     if (sports) return CAT.sports;
 
     const politics =
       /\b(gobierno|congreso|senado|parlamento|presidente|ministro|ministra|elecciones|pp|psoe|vox|podemos|sumar|política|politica|ley|decreto|tribunal|constitucional|ue|otan|onu|casa blanca|trump|biden|putin|zelenski|netanyahu)\b/.test(s);
-
     if (politics) return CAT.politics;
 
     const viral =
       /\b(viral|meme|tiktok|tik tok|twitch|streamer|youtube|youtuber|influencer|polémica|polemica|trend|challenge|filtrado|filtración|escándalo|escandalo)\b/.test(s);
-
     if (viral) return CAT.viral;
 
     return CAT.news;
@@ -441,9 +460,7 @@
       const obj = parsed?.ranks || parsed;
       if (!obj || typeof obj !== "object") return;
 
-      state.lastRanks = new Map(
-        Object.entries(obj).map(([k,v]) => [String(k), Number(v)])
-      );
+      state.lastRanks = new Map(Object.entries(obj).map(([k,v]) => [String(k), Number(v)]));
     }catch{}
   }
 
@@ -465,50 +482,17 @@
     return { cls: "same", txt: "—" };
   }
 
-  /* ───────────────────────────── FAVORITOS + TOAST ───────────────────────────── */
+  /* ───────────────────────────── FAVORITOS ───────────────────────────── */
   function loadFavs(){
     try{
       const raw = localStorage.getItem(CFG.LS_FAVS);
       if (!raw) return;
       const arr = JSON.parse(raw);
-      if (Array.isArray(arr)){
-        state.favs = new Set(arr.filter(Boolean).map(String));
-      }
+      if (Array.isArray(arr)) state.favs = new Set(arr.filter(Boolean).map(String));
     }catch{}
   }
-
   function saveFavs(){
-    try{
-      localStorage.setItem(CFG.LS_FAVS, JSON.stringify(Array.from(state.favs)));
-    }catch{}
-  }
-
-  function toast(title, msg){
-    if (!toastHost) return;
-
-    const el = document.createElement("div");
-    el.className = "toast";
-    el.innerHTML = `
-      <img class="toastImg" src="${CFG.toastGif}" alt="" />
-      <div class="toastRow">
-        <div class="toastTitle">${escapeHtml(title)}</div>
-        <div class="toastMsg">${escapeHtml(msg)}</div>
-      </div>
-      <button class="toastX" type="button" aria-label="Cerrar">✕</button>
-    `;
-
-    const kill = () => {
-      el.style.transition = "opacity .14s ease, transform .14s ease";
-      el.style.opacity = "0";
-      el.style.transform = "translateY(8px)";
-      setTimeout(() => el.remove(), 160);
-    };
-
-    el.querySelector(".toastX")?.addEventListener("click", kill, { once:true });
-    toastHost.appendChild(el);
-
-    // auto close
-    setTimeout(kill, 3600);
+    try{ localStorage.setItem(CFG.LS_FAVS, JSON.stringify(Array.from(state.favs))); }catch{}
   }
 
   function toggleFav(term, label){
@@ -521,7 +505,7 @@
     if (state.settings.alertsEnabled){
       toast(was ? "Favorito eliminado" : "Favorito guardado", label || term);
     }
-    applyFilter(); // re-render
+    applyFilter();
   }
 
   /* ───────────────────────────── SETTINGS / COMPACT ───────────────────────────── */
@@ -557,12 +541,10 @@
   }
 
   function applySettingsToUI(){
-    // selects
     if (selLang && state.settings.lang) selLang.value = state.settings.lang;
     if (selWindow && state.settings.window) selWindow.value = state.settings.window;
     if (selGeo && state.settings.geo) selGeo.value = state.settings.geo;
 
-    // modal
     if (cfgAuto) cfgAuto.checked = !!state.settings.autoRefresh;
     if (cfgEvery) cfgEvery.value = String(Math.round(state.settings.refreshEveryMs / 1000));
     if (cfgMaxTrends) cfgMaxTrends.value = String(state.settings.maxTrends);
@@ -570,7 +552,6 @@
     if (cfgTicker) cfgTicker.checked = !!state.settings.tickerEnabled;
     if (cfgTickerSpeed) cfgTickerSpeed.value = String(state.settings.tickerSpeedSec);
 
-    // ticker css
     document.documentElement.style.setProperty("--tickerDur", `${clamp(state.settings.tickerSpeedSec, 12, 120)}s`);
     setTickerVisible(!!state.settings.tickerEnabled);
   }
@@ -578,8 +559,7 @@
   /* ───────────────────────────── TABS / MODAL / TICKER ───────────────────────────── */
   function setActiveTab(container, attr, value){
     if (!container) return;
-    const btns = container.querySelectorAll(".tab");
-    btns.forEach(b => {
+    container.querySelectorAll(".tab").forEach(b => {
       const v = b.getAttribute(attr);
       const active = (v === value);
       b.classList.toggle("isActive", active);
@@ -607,14 +587,8 @@
     });
   }
 
-  function openConfig(){
-    if (!cfgModal) return;
-    cfgModal.classList.remove("hidden");
-  }
-  function closeConfig(){
-    if (!cfgModal) return;
-    cfgModal.classList.add("hidden");
-  }
+  function openConfig(){ cfgModal?.classList.remove("hidden"); }
+  function closeConfig(){ cfgModal?.classList.add("hidden"); }
 
   function bindConfig(){
     btnConfig?.addEventListener("click", openConfig);
@@ -636,7 +610,6 @@
       state.settings.tickerEnabled = !!cfgTicker?.checked;
       state.settings.tickerSpeedSec = tickerSec;
 
-      // persist selects too (por si cambiaron)
       state.settings.lang = pickLang();
       state.settings.window = pickTimespan();
       state.settings.geo = pickGeo();
@@ -689,23 +662,17 @@
     const base = state.filtered.length ? state.filtered : state.all;
     const top = base.slice(0, clamp(state.settings.maxTrends, 10, 60));
 
-    const html = top.map((it, idx) => {
+    tickerTrack.innerHTML = top.map((it) => {
       const q = encodeURIComponent(it.label);
-      const sep = (idx < top.length - 1) ? `<span class="tickerSep">•</span>` : `<span class="tickerSep">•</span>`;
       return `
-        <a class="tickerItem" href="${CFG.X_SEARCH}${q}" target="_blank" rel="noreferrer">
-          ${escapeHtml(it.label)}
-        </a>
-        ${sep}
+        <a class="tickerItem" href="${CFG.X_SEARCH}${q}" target="_blank" rel="noreferrer">${escapeHtml(it.label)}</a>
+        <span class="tickerSep">•</span>
       `;
     }).join("");
 
-    tickerTrack.innerHTML = html;
-
-    // reinicia animación
     tickerTrack.style.animation = "none";
-    // eslint-disable-next-line no-unused-expressions
-    tickerTrack.offsetHeight;
+    // force reflow
+    tickerTrack.offsetHeight; // eslint-disable-line no-unused-expressions
     tickerTrack.style.animation = "";
   }
 
@@ -720,14 +687,13 @@
 
   /* ───────────────────────────── COMPUTE TRENDS ───────────────────────────── */
   function computeTrends(articles){
-    const freq = new Map();      // term -> score accumulator
-    const meta = new Map();      // term -> {label, exampleUrl, sampleTitle, rawFreq}
+    const freq = new Map(); // term -> score accumulator
+    const meta = new Map(); // term -> {label, exampleUrl, sampleTitle, rawFreq}
 
     const add = (term, label, weight, exampleUrl, sampleTitle) => {
       if (!term || !label) return;
       const key = String(term);
-      const prev = freq.get(key) || 0;
-      freq.set(key, prev + weight);
+      freq.set(key, (freq.get(key) || 0) + weight);
 
       if (!meta.has(key)){
         meta.set(key, { label, exampleUrl: exampleUrl || "", sampleTitle: sampleTitle || "", rawFreq: 0 });
@@ -758,8 +724,7 @@
       const entities = extractEntityPhrases(words);
       for (const e of entities){
         const norm = normalizeToken(e);
-        if (!norm) continue;
-        if (isStop(norm)) continue;
+        if (!norm || isStop(norm)) continue;
         add(norm, e, 1.4, url, title);
       }
 
@@ -771,7 +736,7 @@
         add(norm, g, 1.15, url, title);
       }
 
-      // tokens sueltos (solo si son fuertes)
+      // tokens sueltos fuertes
       for (const w of words){
         if (w.isHash || w.isAt) continue;
         const base = normalizeToken(w.raw);
@@ -786,10 +751,9 @@
       const label = m.label || term;
       const sampleTitle = m.sampleTitle || "";
       const exampleUrl = m.exampleUrl || "";
-
       const cat = classify(label, sampleTitle);
 
-      // score final suavizado para estabilidad
+      // score final suavizado
       const finalScore = score * 10;
 
       return {
@@ -802,25 +766,25 @@
       };
     });
 
-    // orden y recorte
     scored.sort((a,b) => b.score - a.score);
 
-    // dedupe leve: si un hashtag y su versión sin # compiten, deja el que tenga más score
+    // dedupe leve: #X vs X
     const seen = new Set();
     const out = [];
+    const maxT = clamp(state.settings.maxTrends, 10, 60);
+
     for (const it of scored){
       const key = safeLower(it.label).replace(/^#/, "");
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(it);
-      if (out.length >= clamp(state.settings.maxTrends, 10, 60)) break;
+      if (out.length >= maxT) break;
     }
 
-    // añade delta badge info aquí (dependiente de ranks)
     return out;
   }
 
-  /* ───────────────────────────── RENDER ───────────────────────────── */
+  /* ───────────────────────────── RENDER / FILTER ───────────────────────────── */
   function render(items){
     if (!elList) return;
 
@@ -830,7 +794,6 @@
     items.forEach((it, idx) => {
       const rank = idx + 1;
       const delta = deltaBadge(it.term, rank);
-
       const isFav = state.favs.has(String(it.term));
       const catLabel = (it.cat && it.cat !== "all") ? (CAT_LABEL[it.cat] || "") : "";
 
@@ -871,44 +834,46 @@
         </div>
       `;
 
-      node.querySelector(".favBtn")?.addEventListener("click", () => toggleFav(it.term, it.label));
-
+      node.querySelector(".favBtn")?.addEventListener("click", () => toggleFav(it.term, it.label), { passive:true });
       frag.appendChild(node);
     });
 
     elList.appendChild(frag);
 
-    // empty
     const has = items.length > 0;
     if (elEmpty) elEmpty.classList.toggle("hidden", has);
     updateTicker();
   }
 
   function applyFilter(){
-    const q = safeLower(inpQ?.value || "").trim();
+    const qRaw = safeLower(inpQ?.value || "").trim();
 
     let arr = state.all.slice();
 
-    // view favs
+    // Vista favoritos
     if (state.view === "favs"){
       arr = arr.filter(it => state.favs.has(String(it.term)));
     }
 
-    // category
+    // Categoría
     if (state.category && state.category !== "all"){
       arr = arr.filter(it => it.cat === state.category);
     }
 
-    // search
-    if (q){
-      arr = arr.filter(it => safeLower(it.label).includes(q));
+    // Búsqueda: si empieza por "#" filtra hashtags
+    if (qRaw.startsWith("#")){
+      arr = arr.filter(it => String(it.label || "").trim().startsWith("#"));
+    }
+
+    if (qRaw){
+      arr = arr.filter(it => safeLower(it.label).includes(qRaw));
     }
 
     state.filtered = arr;
     render(arr);
   }
 
-  /* ───────────────────────────── ALERTAS “SUAVES” PARA FAVORITOS ───────────────────────────── */
+  /* ───────────────────────────── ALERTAS SUAVES PARA FAVORITOS ───────────────────────────── */
   function favRankAlerts(trends){
     if (!state.settings.alertsEnabled) return;
     if (!state.favs.size) return;
@@ -916,7 +881,6 @@
     const newRanks = new Map();
     trends.forEach((t, idx) => newRanks.set(String(t.term), idx + 1));
 
-    // Si un favorito entra en Top o sube fuerte
     for (const fav of state.favs){
       const nr = newRanks.get(String(fav));
       if (!nr) continue;
@@ -937,10 +901,9 @@
   async function refresh(){
     if (state.refreshing) return;
     state.refreshing = true;
-
+    setLoading(true);
     clearError();
 
-    // abort previo
     if (state.abort){
       try{ state.abort.abort(); }catch{}
     }
@@ -953,30 +916,32 @@
 
       const data = await res.json().catch(() => ({}));
       const articles = Array.isArray(data?.articles) ? data.articles : [];
+
       if (!articles.length){
         state.all = [];
         state.filtered = [];
         render([]);
         setLastUpdated();
         saveRanks([]);
+        state.failCount = 0;
         return;
       }
 
       const trends = computeTrends(articles);
 
-      // alertas de favs comparando con lastRanks (antes de saveRanks)
       favRankAlerts(trends);
 
       state.all = trends;
       applyFilter();
       setLastUpdated();
-
       saveRanks(trends);
 
+      state.failCount = 0;
     }catch(err){
       if (err?.name === "AbortError"){
-        // silencioso (refresh nuevo)
+        // silencioso
       }else{
+        state.failCount = clamp(state.failCount + 1, 0, 6);
         showError(
           "No pude actualizar tendencias ahora mismo. " +
           "Puede ser rate-limit o un corte puntual de la fuente. " +
@@ -985,6 +950,7 @@
         if (!state.all.length) render([]);
       }
     }finally{
+      setLoading(false);
       state.refreshing = false;
     }
   }
@@ -993,8 +959,13 @@
     if (state.timer) clearTimeout(state.timer);
     if (!state.settings.autoRefresh) return;
 
-    const every = clamp(Number(state.settings.refreshEveryMs || DEFAULT_SETTINGS.refreshEveryMs), CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
+    const baseEvery = clamp(Number(state.settings.refreshEveryMs || DEFAULT_SETTINGS.refreshEveryMs), CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
     const jitterMax = clamp(Number(state.settings.refreshJitterMs || DEFAULT_SETTINGS.refreshJitterMs), 0, 60_000);
+
+    // backoff suave en errores
+    const mult = 1 + Math.min(state.failCount, 4) * 0.6;
+    const every = clamp(Math.round(baseEvery * mult), CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
+
     const jitter = Math.floor((Math.random() * 2 - 1) * jitterMax);
     const wait = clamp(every + jitter, CFG.MIN_REFRESH_MS, CFG.MAX_REFRESH_MS);
 
@@ -1002,6 +973,139 @@
       await refresh();
       schedule();
     }, wait);
+  }
+
+  /* ───────────────────────────── TIMELINE RESCUE (WIDGETS) ───────────────────────────── */
+  function timelineRescue(){
+    const wrap = document.querySelector(".timelineWrap");
+    const anchor = wrap?.querySelector?.("a.twitter-timeline");
+    if (!wrap || !anchor) return;
+
+    // intenta mostrar más posts (siempre que X lo permita)
+    try{
+      anchor.setAttribute("data-tweet-limit", "20");
+      anchor.setAttribute("data-theme", "dark");
+    }catch{}
+
+    // Lanza carga cuando twttr esté listo
+    const tryLoad = () => {
+      try{
+        window.twttr?.widgets?.load?.(wrap);
+      }catch{}
+    };
+
+    if (window.twttr?.ready){
+      window.twttr.ready(() => tryLoad());
+    }else{
+      tryLoad();
+    }
+
+    // fallback si a los 8s no hay iframe
+    setTimeout(() => {
+      const hasIframe = !!wrap.querySelector("iframe");
+      if (hasIframe) return;
+
+      // coloca aviso no invasivo
+      const hintId = "tl_fallback_hint";
+      if (document.getElementById(hintId)) return;
+
+      const div = document.createElement("div");
+      div.id = hintId;
+      div.style.cssText = "margin-top:10px;padding:10px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(255,255,255,.04);color:rgba(231,233,234,.88);font-size:13px;line-height:1.35";
+      div.innerHTML = `
+        <div style="font-weight:700;margin-bottom:4px">Timeline no cargó</div>
+        <div style="opacity:.9">Si tu navegador bloquea el widget, abre directamente el perfil en X:</div>
+        <a href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer" style="display:inline-block;margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(29,155,240,.16);color:#e7e9ea;text-decoration:none">Abrir @GlobalEye_TV</a>
+      `;
+      wrap.appendChild(div);
+    }, 8000);
+  }
+
+  /* ───────────────────────────── AUTO-UPDATE (SERVICE WORKER) ───────────────────────────── */
+  function swReloadOnce(){
+    try{
+      const done = sessionStorage.getItem(CFG.SS_SW_RELOADED);
+      if (done === "1") return false;
+      sessionStorage.setItem(CFG.SS_SW_RELOADED, "1");
+      return true;
+    }catch{
+      return true;
+    }
+  }
+
+  async function swSkipWaiting(reg){
+    try{
+      if (!reg) return false;
+      const w = reg.waiting;
+      if (!w) return false;
+      w.postMessage({ type: "SKIP_WAITING" });
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  function bindSwControllerChange(){
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // Nuevo SW tomó control -> reload 1 vez
+      if (swReloadOnce()){
+        toast("Actualización", "Aplicando nueva versión…");
+        setTimeout(() => location.reload(), 650);
+      }
+    });
+  }
+
+  async function initAutoUpdateSW(){
+    if (!("serviceWorker" in navigator)) return;
+
+    bindSwControllerChange();
+
+    try{
+      const reg = await navigator.serviceWorker.register(CFG.SW_URL, { updateViaCache: "none" });
+      state.swReg = reg;
+
+      // si hay un SW esperando ya
+      if (reg.waiting){
+        await swSkipWaiting(reg);
+      }
+
+      // detectar updates nuevos
+      reg.addEventListener("updatefound", () => {
+        const installing = reg.installing;
+        if (!installing) return;
+
+        installing.addEventListener("statechange", async () => {
+          if (installing.state !== "installed") return;
+
+          // Solo es “update” si ya hay controller activo
+          if (navigator.serviceWorker.controller){
+            toast("Actualización detectada", "Actualizando…");
+            await swSkipWaiting(reg);
+          }
+        });
+      });
+
+      // tick: forzar update() cada X minutos y al volver a la pestaña
+      const tick = async () => {
+        try{ await reg.update(); }catch{}
+        try{
+          if (reg.waiting) await swSkipWaiting(reg);
+        }catch{}
+      };
+
+      if (state.swTick) clearInterval(state.swTick);
+      state.swTick = setInterval(tick, CFG.SW_UPDATE_EVERY_MS);
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") tick();
+      }, { passive:true });
+
+      // primer tick
+      tick();
+    }catch{
+      // si falla el SW, la app sigue igual (solo sin auto-update)
+    }
   }
 
   /* ───────────────────────────── BIND ───────────────────────────── */
@@ -1015,13 +1119,12 @@
     });
 
     btnCompact?.addEventListener("click", toggleCompact);
-
     inpQ?.addEventListener("input", applyFilter);
 
     selLang?.addEventListener("change", () => {
       state.settings.lang = pickLang();
       saveSettings();
-      inpQ.value = "";
+      if (inpQ) inpQ.value = "";
       refresh();
       schedule();
     });
@@ -1029,7 +1132,7 @@
     selWindow?.addEventListener("change", () => {
       state.settings.window = pickTimespan();
       saveSettings();
-      inpQ.value = "";
+      if (inpQ) inpQ.value = "";
       refresh();
       schedule();
     });
@@ -1037,7 +1140,7 @@
     selGeo?.addEventListener("change", () => {
       state.settings.geo = pickGeo();
       saveSettings();
-      inpQ.value = "";
+      if (inpQ) inpQ.value = "";
       refresh();
       schedule();
     });
@@ -1049,7 +1152,6 @@
     bindConfig();
     bindTicker();
 
-    // Estados iniciales tabs
     setActiveTab(tabsView, "data-view", state.view);
     setActiveTab(tabsCat, "data-cat", state.category);
   }
@@ -1063,7 +1165,6 @@
     loadLastRanks();
     loadCompact();
 
-    // refleja selects
     state.settings.lang = state.settings.lang || pickLang();
     state.settings.window = state.settings.window || pickTimespan();
     state.settings.geo = state.settings.geo || pickGeo();
@@ -1072,10 +1173,11 @@
     bind();
     setNet(navigator.onLine);
 
-    // SW (opcional)
-    if ("serviceWorker" in navigator){
-      try{ await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }); }catch{}
-    }
+    // auto-update SW
+    initAutoUpdateSW();
+
+    // timeline rescue
+    timelineRescue();
 
     await refresh();
     schedule();
