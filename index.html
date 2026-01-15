@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Panel estilo X: tendencias en tiempo real + timeline de @GlobalEye_TV. 100% GitHub Pages." />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+  <title>GlobalEye • Trends</title>
+
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <script defer src="./app.js"></script>
+</head>
+
+<body>
+  <noscript>
+    <div class="noscript">
+      Necesitas JavaScript activado para ver tendencias y el timeline.
+    </div>
+  </noscript>
+
+  <div class="app">
+    <!-- LEFT NAV -->
+    <aside class="left">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">𝕏</div>
+        <div class="brandText">
+          <div class="brandTitle">GlobalEye</div>
+          <div class="brandSub">@GlobalEye_TV</div>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Navegación">
+        <button class="navItem isActive" data-route="trends" aria-current="page">
+          <span class="ico" aria-hidden="true">⌁</span>
+          <span>Tendencias</span>
+        </button>
+
+        <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+          <span class="ico" aria-hidden="true">👤</span>
+          <span>Perfil en X</span>
+        </a>
+
+        <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer">
+          <span class="ico" aria-hidden="true">🔎</span>
+          <span>Explorar en X</span>
+        </a>
+      </nav>
+
+      <div class="leftFooter">
+        <div class="pill">
+          <span class="dot"></span>
+          <span id="netStatus">Conectando…</span>
+        </div>
+
+        <button id="btnRefresh" class="btn btnPrimary">
+          Actualizar
+        </button>
+
+        <button id="btnCompact" class="btn btnGhost" aria-pressed="false">
+          Modo compacto
+        </button>
+
+        <div class="hint">
+          * “Tendencias” aquí = señales en tiempo real (open data) + botón “Ver en X”.
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER -->
+    <main class="center">
+      <header class="topbar">
+        <div class="topbarTitle">
+          <h1>Tendencias ahora</h1>
+          <div class="subtitle" id="lastUpdated">—</div>
+        </div>
+
+        <div class="searchWrap">
+          <span class="searchIco" aria-hidden="true">🔎</span>
+          <input id="q" class="search" type="search" placeholder="Buscar tendencia…" autocomplete="off" />
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panelHead">
+          <div class="panelTitle">Ranking</div>
+
+          <div class="panelControls">
+            <select id="selLang" class="select" title="Idioma de fuentes">
+              <option value="spanish" selected>ES (sourcelang:spanish)</option>
+              <option value="english">EN (sourcelang:english)</option>
+              <option value="mixed">Mixto</option>
+            </select>
+
+            <select id="selWindow" class="select" title="Ventana temporal">
+              <option value="2H">Últimas 2h</option>
+              <option value="4H" selected>Últimas 4h</option>
+              <option value="6H">Últimas 6h</option>
+              <option value="12H">Últimas 12h</option>
+            </select>
+
+            <select id="selGeo" class="select" title="Foco">
+              <option value="ES" selected>España / ES</option>
+              <option value="GLOBAL">Global</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="list" class="trendList" aria-live="polite"></div>
+
+        <div id="empty" class="empty hidden">
+          No hay resultados para ese filtro.
+        </div>
+
+        <div id="err" class="errorBox hidden"></div>
+      </section>
+
+      <section class="panel mini">
+        <div class="panelHead">
+          <div class="panelTitle">Cómo funciona</div>
+        </div>
+        <div class="miniText">
+          Este panel calcula tendencias con titulares recientes (open data) y te da acceso directo a la búsqueda en X.
+          El timeline de la derecha es tu feed real embebido.
+        </div>
+      </section>
+    </main>
+
+    <!-- RIGHT -->
+    <aside class="right">
+      <div class="rightCard">
+        <div class="rightTitle">Tu timeline</div>
+        <div class="rightSub">Posts públicos de @GlobalEye_TV</div>
+
+        <div class="timelineWrap">
+          <a class="twitter-timeline"
+             href="https://x.com/GlobalEye_TV"
+             data-theme="dark"
+             data-chrome="noheader nofooter noborders transparent"
+             data-tweet-limit="8">
+            Posts by @GlobalEye_TV
+          </a>
+        </div>
+      </div>
+
+      <div class="rightCard">
+        <div class="rightTitle">Accesos rápidos</div>
+        <div class="quick">
+          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23ENVIVO">#ENVIVO</a>
+          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23ULTIMAHORA">#ULTIMAHORA</a>
+          <a class="chip" target="_blank" rel="noreferrer" href="https://x.com/search?q=%23BREAKING">#BREAKING</a>
+        </div>
+      </div>
+
+      <div class="rightCard subtle">
+        <div class="rightTitle">Nota</div>
+        <div class="rightSub">
+          El timeline embebido no “hace polling” infinito; se refresca al recargar. :contentReference[oaicite:3]{index=3}
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- X widgets loader (oficial) -->
+  <script>
+    // Recomendado por X for Websites: carga widgets.js una vez. :contentReference[oaicite:4]{index=4}
+    window.twttr = (function(d, s, id) {
+      var js, fjs = d.getElementsByTagName(s)[0], t = window.twttr || {};
+      if (d.getElementById(id)) return t;
+      js = d.createElement(s); js.id = id;
+      js.src = "https://platform.twitter.com/widgets.js";
+      fjs.parentNode.insertBefore(js, fjs);
+      t._e = [];
+      t.ready = function(f) { t._e.push(f); };
+      return t;
+    }(document, "script", "twitter-wjs"));
+  </script>
+</body>
+</html>
