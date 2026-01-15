@@ -10,8 +10,14 @@
 
   <title>GlobalEye • Trends</title>
 
-  <!-- Favicon simple (sin romper nada) -->
+  <!-- Performance (no rompe nada) -->
+  <link rel="preconnect" href="https://platform.twitter.com" crossorigin />
+  <link rel="dns-prefetch" href="//platform.twitter.com" />
+
+  <!-- Favicon / App icons (PNG transparente + fallback JPG) -->
+  <link rel="icon" href="./logo_ojo_png.png" />
   <link rel="icon" href="./logo_ojo.jpg" />
+  <link rel="apple-touch-icon" href="./logo_ojo_png.png" />
   <link rel="apple-touch-icon" href="./logo_ojo.jpg" />
 
   <link rel="manifest" href="./manifest.webmanifest" />
@@ -22,23 +28,38 @@
 <body>
   <noscript>
     <div class="noscript">
-      Necesitas JavaScript activado para ver tendencias y el timeline.
     </div>
   </noscript>
 
   <!-- HERO / BANNER -->
   <header class="hero" aria-label="GlobalEye banner">
-    <img class="heroImg" src="./banner_ojo.jpg" alt="GlobalEye banner" loading="eager" />
+    <img
+      class="heroImg"
+      src="./banner_ojo.jpg"
+      alt="GlobalEye banner"
+      loading="eager"
+      decoding="async"
+      fetchpriority="high"
+    />
+
     <div class="heroOverlay">
       <div class="heroBrand">
-        <img class="heroLogo" src="./logo_ojo.jpg" alt="GlobalEye logo" />
+        <img
+          class="heroLogo"
+          src="./logo_ojo_png.png"
+          alt="GlobalEye logo"
+          loading="eager"
+          decoding="async"
+          onerror="this.onerror=null;this.src='./logo_ojo.jpg';"
+        />
         <div class="heroTxt">
-          <div class="heroTitle">GlobalEye</div>
+          <div class="heroTitle">OJO OJITO OJETE</div>
           <div class="heroSub">@GlobalEye_TV • BLOG OFICIAL</div>
         </div>
       </div>
+
       <div class="heroCtas">
-        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Ver perfil en X</a>
+        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">IR A X</a>
         <a class="cta ctaGhost" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">Donar (Ko-fi)</a>
       </div>
     </div>
@@ -49,16 +70,23 @@
     <aside class="left">
       <div class="brand">
         <div class="logo" aria-hidden="true">
-          <img class="logoImg" src="./logo_ojo.jpg" alt="" />
+          <img
+            class="logoImg"
+            src="./logo_ojo_png.png"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onerror="this.onerror=null;this.src='./logo_ojo.jpg';"
+          />
         </div>
         <div class="brandText">
-          <div class="brandTitle">GlobalEye</div>
+          <div class="brandTitle">OJO OJITO OJETE</div>
           <div class="brandSub">@GlobalEye_TV</div>
         </div>
       </div>
 
       <nav class="nav" aria-label="Navegación">
-        <button class="navItem isActive" data-route="trends" aria-current="page">
+        <button class="navItem isActive" type="button" data-route="trends" aria-current="page">
           <span class="ico" aria-hidden="true">⌁</span>
           <span>Tendencias</span>
         </button>
@@ -95,11 +123,11 @@
           <span id="netStatus">Conectando…</span>
         </div>
 
-        <button id="btnRefresh" class="btn btnPrimary">
+        <button id="btnRefresh" class="btn btnPrimary" type="button">
           Actualizar
         </button>
 
-        <button id="btnCompact" class="btn btnGhost" aria-pressed="false">
+        <button id="btnCompact" class="btn btnGhost" type="button" aria-pressed="false">
           Modo compacto
         </button>
 
@@ -108,6 +136,7 @@
         </a>
 
         <div class="hint">
+          <!-- (opcional) Puedes poner aquí una frase corta tipo: "Open data + salto a X con 1 click" -->
         </div>
       </div>
     </aside>
@@ -120,7 +149,7 @@
           <div class="subtitle" id="lastUpdated">—</div>
         </div>
 
-        <div class="searchWrap">
+        <div class="searchWrap" role="search">
           <span class="searchIco" aria-hidden="true">🔎</span>
           <input id="q" class="search" type="search" placeholder="Buscar tendencia…" autocomplete="off" />
         </div>
@@ -151,19 +180,19 @@
           </div>
         </div>
 
-        <!-- NUEVO: vistas + categorías -->
+        <!-- Vistas + categorías -->
         <div class="subHead">
           <div class="tabs" id="tabsView" role="tablist" aria-label="Vista">
-            <button class="tab isActive" data-view="all" role="tab" aria-selected="true">Todo</button>
-            <button class="tab" data-view="favs" role="tab" aria-selected="false">Favoritos</button>
+            <button class="tab isActive" type="button" data-view="all" role="tab" aria-selected="true">Todo</button>
+            <button class="tab" type="button" data-view="favs" role="tab" aria-selected="false">Favoritos</button>
           </div>
 
           <div class="tabs tabsCat" id="tabsCat" role="tablist" aria-label="Categorías">
-            <button class="tab isActive" data-cat="all" role="tab" aria-selected="true">Todos</button>
-            <button class="tab" data-cat="news" role="tab" aria-selected="false">Noticias</button>
-            <button class="tab" data-cat="viral" role="tab" aria-selected="false">Viral</button>
-            <button class="tab" data-cat="politics" role="tab" aria-selected="false">Política</button>
-            <button class="tab" data-cat="sports" role="tab" aria-selected="false">Deportes</button>
+            <button class="tab isActive" type="button" data-cat="all" role="tab" aria-selected="true">Todos</button>
+            <button class="tab" type="button" data-cat="news" role="tab" aria-selected="false">Noticias</button>
+            <button class="tab" type="button" data-cat="viral" role="tab" aria-selected="false">Viral</button>
+            <button class="tab" type="button" data-cat="politics" role="tab" aria-selected="false">Política</button>
+            <button class="tab" type="button" data-cat="sports" role="tab" aria-selected="false">Deportes</button>
           </div>
         </div>
 
@@ -230,7 +259,7 @@
   <!-- TICKER -->
   <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker de tendencias">
     <div class="tickerInner">
-      <img class="tickerLogo" src="./logo_ojo_gif.gif" alt="" />
+      <img class="tickerLogo" src="./logo_ojo_gif.gif" alt="" loading="lazy" decoding="async" />
       <div class="tickerViewport">
         <div id="tickerTrack" class="tickerTrack"></div>
       </div>
@@ -257,12 +286,12 @@
 
         <label class="field">
           <span>Intervalo (seg)</span>
-          <input id="cfgEvery" type="number" min="35" max="900" step="5" />
+          <input id="cfgEvery" type="number" min="35" max="900" step="5" inputmode="numeric" />
         </label>
 
         <label class="field">
           <span>Top tendencias</span>
-          <input id="cfgMaxTrends" type="number" min="10" max="60" step="1" />
+          <input id="cfgMaxTrends" type="number" min="10" max="60" step="1" inputmode="numeric" />
         </label>
 
         <label class="field">
@@ -277,7 +306,7 @@
 
         <label class="field">
           <span>Velocidad ticker (seg/vuelta)</span>
-          <input id="cfgTickerSpeed" type="number" min="12" max="120" step="1" />
+          <input id="cfgTickerSpeed" type="number" min="12" max="120" step="1" inputmode="numeric" />
         </label>
 
         <div class="modalActions">
