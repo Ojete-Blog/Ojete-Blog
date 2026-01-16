@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!doctype html>
 <html lang="es" data-theme="dark">
 <head>
@@ -33,6 +32,7 @@
     <div class="noscript">Activa JavaScript para ver el feed.</div>
   </noscript>
 
+  <!-- Ticker -->
   <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker">
     <div class="tickerInner">
       <img class="tickerLogo" src="./logo_ojo_png.png" alt="" />
@@ -45,6 +45,7 @@
     </div>
   </div>
 
+  <!-- Header -->
   <header class="topbar" aria-label="GlobalEye">
     <div class="topBg" aria-hidden="true">
       <img class="topBgImg" src="./banner_ojo.jpg" alt="" loading="eager" decoding="async" fetchpriority="high" />
@@ -60,19 +61,27 @@
         </div>
       </div>
 
-      <div class="topActions">
+      <div class="topActions" role="group" aria-label="Acciones">
         <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
           <span class="ms" aria-hidden="true">open_in_new</span> Abrir en X
         </a>
-        <button id="btnRefresh" class="btn ghost" type="button">
-          <span class="ms" aria-hidden="true">refresh</span> Actualizar
+
+        <button id="btnReloadX" class="btn ghost" type="button" title="Re-montar el feed embebido">
+          <span class="ms" aria-hidden="true">refresh</span> Recargar feed
         </button>
+
+        <button id="btnRefresh" class="btn ghost" type="button">
+          <span class="ms" aria-hidden="true">sync</span> Actualizar
+        </button>
+
         <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">
           <span class="ms" aria-hidden="true">density_small</span> Compacto
         </button>
+
         <button id="btnTicker" class="btn ghost" type="button" aria-pressed="false">
           <span class="ms" aria-hidden="true">linear_scale</span> Ticker
         </button>
+
         <button id="btnConfig" class="btn" type="button">
           <span class="ms" aria-hidden="true">tune</span> Config
         </button>
@@ -90,11 +99,12 @@
   </header>
 
   <main class="app">
-    <aside class="left">
+    <!-- Left -->
+    <aside class="left" aria-label="Panel lateral">
       <div class="card">
         <div class="cardTitle">Modo</div>
         <div class="hint">
-          Entra en <b>MEMES</b> para ver tarjetas tipo Reddit con memes de las últimas <b>48h</b>.
+          Entra en <b>MEMES</b> para ver tarjetas tipo Reddit con <b>solo</b> memes con imagen/vídeo de las últimas <b>48h</b>.
         </div>
       </div>
 
@@ -118,7 +128,8 @@
       </div>
     </aside>
 
-    <section class="center">
+    <!-- Center -->
+    <section class="center" aria-label="Contenido">
       <div class="panel">
         <div class="panelHead">
           <div class="searchWrap">
@@ -128,7 +139,7 @@
 
           <div class="filters">
             <div id="trendFilters" class="filtersGroup">
-              <select id="selLang" class="select" title="Idioma (GDELT)">
+              <select id="selLang" class="select" title="Idioma (Open data)">
                 <option value="spanish">ES</option>
                 <option value="mixed">Mixto</option>
                 <option value="english">EN</option>
@@ -161,6 +172,7 @@
                 <option value="new" selected>New</option>
                 <option value="hot">Hot</option>
                 <option value="top">Top</option>
+                <option value="best">Best (tus votos)</option>
               </select>
 
               <select id="selMemeRange" class="select" title="Rango memes">
@@ -195,7 +207,8 @@
       </div>
     </section>
 
-    <aside class="right">
+    <!-- Right -->
+    <aside class="right" aria-label="Feed X">
       <div class="panel">
         <div class="panelHead slim">
           <div class="panelTitle">Tu feed (X)</div>
@@ -210,6 +223,7 @@
 
   <div id="toastHost" class="toasts" aria-live="polite" aria-relevant="additions"></div>
 
+  <!-- Config modal -->
   <div id="cfgModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Configuración">
     <div class="modalCard">
       <div class="modalHead">
