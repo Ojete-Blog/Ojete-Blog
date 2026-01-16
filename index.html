@@ -4,248 +4,208 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#07080C" />
-  <meta name="description" content="GlobalEye Trends — Tendencias del momento (open data) + tu feed embebido en X, sin usar la API de X." />
+  <meta name="theme-color" content="#070A12" />
+  <meta name="description" content="Panel PRO para ver tu feed de X (sin API) + tendencias actuales desde GDELT (open data)." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <meta name="robots" content="index,follow" />
+  <meta name="robots" content="noindex,nofollow" />
 
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./logo_ojo_favicon.png" />
-  <link rel="apple-touch-icon" href="./logo_ojo_favicon.png" />
+  <link rel="icon" href="./logo_ojo_png.png" />
+  <link rel="apple-touch-icon" href="./logo_ojo_png.png" />
 
   <link rel="stylesheet" href="./styles.css" />
 
-  <!-- ✅ IMPORTANTE: carga el widget de X/Twitter desde HTML (no depende de app.js) -->
+  <!-- Widget oficial (feed con media: imágenes y vídeos). app.js también tiene fallback si esto no carga -->
   <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 
   <title>GlobalEye Trends</title>
 </head>
 
 <body>
-  <noscript>
-    <div class="noscript">
-      Necesitas JavaScript para ver tendencias y el feed embebido.
-    </div>
-  </noscript>
-
-  <!-- HERO -->
-  <section class="hero">
-    <img class="heroImg" src="./banner_ojo.jpg" alt="GlobalEye" />
-    <div class="heroOverlay">
-      <div class="heroBrand">
-        <img class="heroLogo" src="./logo_ojo.jpg" alt="Logo" />
-        <div class="heroTxt">
-          <div class="heroTitle">GlobalEye Trends</div>
-          <div class="heroSub">Tendencias (open data) + tu feed embebido · sin API de X</div>
-        </div>
-      </div>
-
-      <div class="heroCtas">
-        <a class="cta ctaPrimary" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Abrir @GlobalEye_TV</a>
-        <a class="cta ctaGhost" href="https://x.com/explore" target="_blank" rel="noreferrer">Explorar en X</a>
-        <button id="btnConfig" class="cta" type="button">⚙️ Config</button>
-        <button id="btnTicker" class="cta" type="button" aria-pressed="false">📡 Ticker</button>
-        <a class="cta ctaGhost" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">☕ Ko-fi</a>
-      </div>
-    </div>
-  </section>
-
-  <div class="app">
-    <!-- LEFT -->
-    <aside class="left">
-      <div class="brand">
-        <div class="logo">
-          <img class="logoImg" src="./logo_ojo.jpg" alt="Logo" />
-        </div>
-        <div>
-          <div class="brandTitle">GlobalEye</div>
-          <div class="brandSub">Tendencias & feed</div>
-        </div>
-      </div>
-
-      <nav class="nav" aria-label="Navegación">
-        <button class="navItem isActive" type="button" data-nav="trends">
-          <span class="ico" aria-hidden="true">📈</span>
-          <span>Tendencias</span>
-        </button>
-        <button class="navItem" type="button" data-nav="favs" id="navFavs">
-          <span class="ico" aria-hidden="true">⭐</span>
-          <span>Favoritos</span>
-        </button>
-        <a class="navItem" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
-          <span class="ico" aria-hidden="true">🧵</span>
-          <span>Tu perfil</span>
-        </a>
-        <a class="navItem" href="https://x.com/explore" target="_blank" rel="noreferrer">
-          <span class="ico" aria-hidden="true">🔎</span>
-          <span>Explorar en X</span>
-        </a>
-      </nav>
-
-      <div class="leftFooter">
-        <div class="pill">
-          <span class="dot" aria-hidden="true"></span>
-          <span id="netStatus">Conectando…</span>
-        </div>
-
-        <button id="btnRefresh" class="btn btnPrimary" type="button">Actualizar</button>
-        <button id="btnCompact" class="btn btnGhost" type="button" aria-pressed="false">Modo compacto</button>
-
-        <a class="btn btnKofi" href="https://ko-fi.com/global_eye" target="_blank" rel="noreferrer">
-          ☕ Donar en Ko-fi
-        </a>
-
-        <div class="hint">Open data + acceso directo a X con 1 click.</div>
-      </div>
-    </aside>
-
-    <!-- CENTER -->
-    <main class="center">
-      <header class="topbar">
-        <div class="topbarTitle">
-          <h1>Tendencias ahora</h1>
-          <div class="subtitle" id="lastUpdated">—</div>
-        </div>
-
-        <div class="searchWrap" role="search">
-          <span class="searchIco" aria-hidden="true">🔎</span>
-          <input id="q" class="search" type="search" placeholder="Buscar tendencia…" autocomplete="off" />
-        </div>
-      </header>
-
-      <section class="panel">
-        <div class="panelHead">
-          <div class="panelTitle">Ranking</div>
-
-          <div class="panelControls">
-            <select id="selLang" class="select" title="Idioma de fuentes">
-              <option value="spanish" selected>ES</option>
-              <option value="english">EN</option>
-              <option value="mixed">Mixto</option>
-            </select>
-
-            <select id="selWindow" class="select" title="Ventana temporal">
-              <option value="2H">Últimas 2h</option>
-              <option value="4H" selected>Últimas 4h</option>
-              <option value="6H">Últimas 6h</option>
-              <option value="12H">Últimas 12h</option>
-            </select>
-
-            <select id="selGeo" class="select" title="Geo">
-              <option value="ES" selected>España</option>
-              <option value="GLOBAL">Global</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="subHead">
-          <div class="tabs" id="tabsView" role="tablist" aria-label="Vista">
-            <button class="tab isActive" type="button" data-view="all" role="tab" aria-selected="true">Todo</button>
-            <button class="tab" type="button" data-view="favs" role="tab" aria-selected="false">Favoritos</button>
-          </div>
-
-          <div class="tabs tabsCat" id="tabsCat" role="tablist" aria-label="Categoría">
-            <button class="tab isActive" type="button" data-cat="all" role="tab" aria-selected="true">All</button>
-            <button class="tab" type="button" data-cat="news" role="tab" aria-selected="false">Noticias</button>
-            <button class="tab" type="button" data-cat="viral" role="tab" aria-selected="false">Viral</button>
-            <button class="tab" type="button" data-cat="politics" role="tab" aria-selected="false">Política</button>
-            <button class="tab" type="button" data-cat="sports" role="tab" aria-selected="false">Deportes</button>
-          </div>
-        </div>
-
-        <div id="err" class="errorBox hidden"></div>
-        <div id="empty" class="empty hidden">Sin resultados…</div>
-
-        <div id="list" class="trendList" aria-live="polite"></div>
-      </section>
-    </main>
-
-    <!-- RIGHT -->
-    <aside class="right">
-      <div class="rightCard">
-        <div class="rightTitle">Tu feed</div>
-        <div class="rightSub">Embed oficial (sin API). Si tu navegador bloquea el widget, usa el botón de abrir perfil.</div>
-        <div class="timelineWrap" id="timelineWrap">
-          <div id="timelineMount" class="timelineMount">
-            <!-- app.js inyecta aquí el <a class="twitter-timeline"> -->
-          </div>
-        </div>
-
-        <div class="quick">
-          <a class="chip" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">🧵 @GlobalEye_TV</a>
-          <a class="chip" href="https://x.com/explore" target="_blank" rel="noreferrer">🔎 Explorar</a>
-          <a class="chip" href="https://x.com/search?q=%23UltimaHora&f=top" target="_blank" rel="noreferrer">#UltimaHora</a>
-        </div>
-      </div>
-
-      <div class="rightCard">
-        <div class="rightTitle">Tip rápido</div>
-        <div class="rightSub">
-          Si no ves tendencias, suele ser por CORS/bloqueos. Esta versión incluye fallback JSONP para que tire igual.
-        </div>
-      </div>
-    </aside>
-  </div>
-
-  <!-- TICKER -->
-  <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker">
+  <!-- Ticker -->
+  <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker de tendencias">
     <div class="tickerInner">
-      <img class="tickerLogo" src="./logo_ojo.jpg" alt="" />
+      <img class="tickerLogo" src="./logo_ojo_png.png" alt="" />
       <div class="tickerViewport">
         <div id="tickerTrack" class="tickerTrack"></div>
       </div>
-      <button id="tickerClose" class="tickerClose" type="button" aria-label="Cerrar ticker">✕</button>
+      <button id="tickerClose" class="iconBtn" type="button" title="Cerrar ticker" aria-label="Cerrar ticker">✕</button>
     </div>
   </div>
 
-  <!-- CONFIG MODAL -->
+  <!-- Hero -->
+  <header class="hero">
+    <div class="heroLeft">
+      <img class="heroLogo" src="./logo_ojo_png.png" alt="Logo" />
+      <div class="heroText">
+        <div class="heroTitle">GlobalEye Trends</div>
+        <div class="heroSub">Feed de X (sin API) + tendencias actuales (open data).</div>
+      </div>
+    </div>
+
+    <div class="heroRight">
+      <div class="heroBtns">
+        <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Abrir @GlobalEye_TV</a>
+        <button id="btnTicker" class="btn ghost" type="button" aria-pressed="false">Ticker</button>
+        <button id="btnConfig" class="btn" type="button">Config</button>
+      </div>
+
+      <div class="heroStatus">
+        <span class="pill" title="Estado de red">🌐 <span id="netStatus">Online</span></span>
+        <span class="pill" title="Última actualización">⏱ <span id="lastUpdated">—</span></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="app">
+    <!-- Left -->
+    <aside class="left">
+      <div class="card">
+        <div class="cardTitle">Acciones</div>
+        <div class="btnRow">
+          <button id="btnRefresh" class="btn" type="button">Actualizar</button>
+          <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">Compacto</button>
+        </div>
+
+        <div class="hint">
+          Tip: el feed de la derecha usa el widget oficial, por eso muestra <b>imágenes/vídeos</b> sin API.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardTitle">Fuente</div>
+        <div class="hint">
+          Tendencias calculadas desde titulares recientes vía <b>GDELT</b> (open data). Si tu navegador bloquea cosas (adblock), verás fallback.
+        </div>
+      </div>
+
+      <!-- SOLO 1 botón de donación (evitamos duplicados) -->
+      <div class="card donate">
+        <div class="cardTitle">Apoya el proyecto</div>
+        <a class="btn kofi" href="https://ko-fi.com/" target="_blank" rel="noreferrer">Donar ☕</a>
+        <div class="hint muted">Cambia el enlace a tu Ko-fi real si quieres.</div>
+      </div>
+    </aside>
+
+    <!-- Center -->
+    <section class="center">
+      <div class="panel">
+        <div class="panelHead">
+          <div class="searchWrap">
+            <span class="searchIco">🔎</span>
+            <input id="q" class="search" type="search" placeholder="Filtrar tendencias… (ej: trump, barcelona, #bitcoin)" autocomplete="off" />
+          </div>
+
+          <div class="filters">
+            <select id="selLang" class="select" title="Idioma (GDELT)">
+              <option value="spanish">ES</option>
+              <option value="mixed">Mixto</option>
+              <option value="english">EN</option>
+            </select>
+
+            <select id="selWindow" class="select" title="Ventana de tiempo">
+              <option value="2H">2H</option>
+              <option value="4H" selected>4H</option>
+              <option value="6H">6H</option>
+              <option value="12H">12H</option>
+            </select>
+
+            <select id="selGeo" class="select" title="Ámbito">
+              <option value="ES" selected>ES</option>
+              <option value="GLOBAL">GLOBAL</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="panelTabs">
+          <div id="tabsView" class="tabs" role="tablist" aria-label="Vista">
+            <button class="tab isActive" type="button" data-view="all" aria-selected="true">Tendencias</button>
+            <button class="tab" type="button" data-view="favs" aria-selected="false">Favoritos</button>
+          </div>
+
+          <div id="tabsCat" class="tabs" role="tablist" aria-label="Categoría">
+            <button class="tab isActive" type="button" data-cat="all" aria-selected="true">Todo</button>
+            <button class="tab" type="button" data-cat="news" aria-selected="false">Noticias</button>
+            <button class="tab" type="button" data-cat="viral" aria-selected="false">Viral</button>
+            <button class="tab" type="button" data-cat="politics" aria-selected="false">Política</button>
+            <button class="tab" type="button" data-cat="sports" aria-selected="false">Deportes</button>
+          </div>
+        </div>
+
+        <div id="err" class="err hidden" role="alert"></div>
+        <div id="empty" class="empty hidden">No hay resultados con estos filtros.</div>
+        <div id="list" class="trendList" aria-live="polite"></div>
+
+        <div class="panelFoot">
+          <span class="muted">*Sin API de X: el feed se carga con el widget oficial.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right -->
+    <aside class="right">
+      <div class="panel">
+        <div class="panelHead slim">
+          <div class="panelTitle">Tu feed (X)</div>
+          <div class="muted small">Con imágenes/vídeos (widget oficial)</div>
+        </div>
+
+        <div class="timelineWrap">
+          <!-- app.js monta aquí el widget -->
+          <div id="timelineMount" class="timelineMount"></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Config modal -->
   <div id="cfgModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Configuración">
     <div class="modalCard">
       <div class="modalHead">
         <div class="modalTitle">Configuración</div>
-        <button id="cfgClose" class="modalX" type="button" aria-label="Cerrar">✕</button>
+        <button id="cfgClose" class="iconBtn" type="button" aria-label="Cerrar">✕</button>
       </div>
 
       <div class="modalBody">
         <label class="row">
-          <span>Auto refresco</span>
-          <input id="cfgAuto" type="checkbox" />
+          <span>Auto-refresh</span>
+          <input id="cfgAuto" type="checkbox" checked />
         </label>
 
         <label class="row">
-          <span>Cada (seg)</span>
-          <input id="cfgEvery" type="number" min="35" max="900" step="5" value="120" />
+          <span>Actualizar cada (seg)</span>
+          <input id="cfgEvery" class="input" type="number" min="35" max="900" value="120" />
         </label>
 
         <label class="row">
           <span>Máx tendencias</span>
-          <input id="cfgMaxTrends" type="number" min="10" max="80" step="5" value="35" />
+          <input id="cfgMaxTrends" class="input" type="number" min="10" max="80" value="35" />
         </label>
 
         <label class="row">
           <span>Alertas suaves</span>
-          <input id="cfgAlerts" type="checkbox" />
+          <input id="cfgAlerts" type="checkbox" checked />
         </label>
 
         <label class="row">
-          <span>Ticker activo</span>
+          <span>Activar ticker</span>
           <input id="cfgTicker" type="checkbox" />
         </label>
 
         <label class="row">
-          <span>Velocidad ticker (s)</span>
-          <input id="cfgTickerSpeed" type="number" min="12" max="120" step="2" value="28" />
+          <span>Velocidad ticker (seg)</span>
+          <input id="cfgTickerSpeed" class="input" type="number" min="12" max="120" value="28" />
         </label>
       </div>
 
       <div class="modalFoot">
-        <button id="cfgSave" class="btn btnPrimary" type="button">Guardar</button>
+        <button id="cfgSave" class="btn" type="button">Guardar</button>
       </div>
     </div>
   </div>
 
-  <!-- TOASTS -->
-  <div id="toastHost" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+  <!-- Toasts -->
+  <div id="toastHost" class="toastHost" aria-live="polite" aria-atomic="true"></div>
 
   <script defer src="./app.js"></script>
 </body>

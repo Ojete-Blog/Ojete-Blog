@@ -1,121 +1,126 @@
-/* sw.js — GlobalEye Trends — cache v4 (GitHub Pages friendly + update real)
-   ✅ Network-first para navegación (HTML)
-   ✅ Stale-while-revalidate para assets SAME-ORIGIN
-   ✅ No cachea GDELT ni platform.twitter.com
-   ✅ SKIP_WAITING + CLEAR_CACHES
-*/
+/* sw.js — GlobalEye Trends — v1.5.0 (cache-bust + auto-update) */
 
 "use strict";
 
-const CACHE = "ge-trends-v4";
+const SW_VERSION = "ge-trends-sw-v5";
+const CACHE_CORE = `${SW_VERSION}::core`;
+const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
+
 const CORE = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.webmanifest",
-  "./logo_ojo.jpg",
-  "./logo_ojo_png.png",
-  "./logo_ojo_favicon.png",
-  "./logo_ojo_gif.gif",
-  "./banner_ojo.jpg"
+  "./manifest.webmanifest"
 ];
 
-self.addEventListener("install", (e) => {
-  e.waitUntil((async () => {
-    const c = await caches.open(CACHE);
+function normalizeCacheKey(reqUrl){
+  try{
+    const u = new URL(reqUrl, self.location.origin);
+    // limpia típicos cache-busters
+    ["v","cb","_","__tnp","__ge","__ts"].forEach(k => u.searchParams.delete(k));
+    return u.toString();
+  }catch{
+    return reqUrl;
+  }
+}
 
-    await Promise.all(CORE.map(async (url) => {
-      try{
-        const req = new Request(url, { cache: "reload" });
-        const res = await fetch(req);
-        if (res.ok) await c.put(req, res.clone());
-      }catch{}
-    }));
-
+self.addEventListener("install", (event) => {
+  event.waitUntil((async () => {
+    try{
+      const cache = await caches.open(CACHE_CORE);
+      await cache.addAll(CORE);
+    }catch{
+      // si falla precache por algún asset, seguimos
+    }
     self.skipWaiting();
   })());
 });
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil((async () => {
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.map(k => (k !== CACHE) ? caches.delete(k) : null));
-    await self.clients.claim();
+    await Promise.all(keys.map(k => {
+      if (!k.startsWith(SW_VERSION)) return caches.delete(k);
+      return Promise.resolve();
+    }));
+    self.clients.claim();
   })());
 });
 
-self.addEventListener("message", (e) => {
-  const type = e?.data?.type;
-  if (type === "SKIP_WAITING") self.skipWaiting();
+self.addEventListener("message", (event) => {
+  const msg = event?.data;
+  if (!msg) return;
 
-  if (type === "CLEAR_CACHES"){
-    e.waitUntil((async () => {
+  if (msg.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+
+  if (msg.type === "CLEAR_CACHES") {
+    event.waitUntil((async () => {
       const keys = await caches.keys();
       await Promise.all(keys.map(k => caches.delete(k)));
     })());
   }
 });
 
-self.addEventListener("fetch", (e) => {
-  const req = e.request;
-  if (req.method !== "GET") return;
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  if (!req || req.method !== "GET") return;
 
   const url = new URL(req.url);
 
-  // Nunca cachear GDELT (siempre live)
-  if (url.hostname.includes("gdeltproject.org") || url.hostname.includes("api.gdeltproject.org")){
-    e.respondWith(fetch(req));
+  // no cachear cross-origin sensibles (X widgets, etc.)
+  if (url.origin !== self.location.origin) {
     return;
   }
 
-  // Nunca cachear cross-origin (widgets de X)
-  const sameOrigin = (url.origin === self.location.origin);
-  if (!sameOrigin){
-    e.respondWith(fetch(req));
-    return;
-  }
+  const isHtml = req.headers.get("accept")?.includes("text/html");
+  const isCore = CORE.some(p => req.url.endsWith(p.replace("./","/")) || req.url.endsWith(p.replace("./","")));
 
-  // HTML navegación: network-first
-  if (req.mode === "navigate"){
-    e.respondWith((async () => {
+  // HTML: network-first (evita quedarte pegado en index viejo)
+  if (isHtml) {
+    event.respondWith((async () => {
       try{
-        const fresh = await fetch(new Request(req.url, { cache: "no-store" }));
-        const c = await caches.open(CACHE);
-        c.put(new Request("./index.html"), fresh.clone());
-        return fresh;
+        const net = await fetch(req, { cache: "no-store" });
+        const cache = await caches.open(CACHE_CORE);
+        cache.put(req, net.clone());
+        return net;
       }catch{
-        const cached = await caches.match(req);
+        const cache = await caches.open(CACHE_CORE);
+        const cached = await cache.match(req);
         return cached || caches.match("./index.html");
       }
     })());
     return;
   }
 
-  // Assets: stale-while-revalidate
-  e.respondWith((async () => {
-    const c = await caches.open(CACHE);
-    const cached = await c.match(req);
+  // Core: stale-while-revalidate
+  if (isCore) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_CORE);
+      const cached = await cache.match(req);
+      const fetcher = fetch(req, { cache: "no-store" }).then(async (net) => {
+        cache.put(req, net.clone());
+        return net;
+      }).catch(() => null);
 
-    const fetchAndUpdate = async () => {
-      try{
-        const fresh = await fetch(req);
-        if (fresh && fresh.ok) await c.put(req, fresh.clone());
-        return fresh;
-      }catch{
-        return null;
-      }
-    };
+      return cached || (await fetcher) || fetch(req);
+    })());
+    return;
+  }
 
-    if (cached){
-      // refresh en segundo plano
-      fetchAndUpdate();
-      return cached;
-    }
+  // Runtime: stale-while-revalidate con key normalizada
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_RUNTIME);
+    const key = normalizeCacheKey(req.url);
 
-    const fresh = await fetchAndUpdate();
-    if (fresh) return fresh;
+    const cached = await cache.match(key);
+    const fetcher = fetch(req, { cache: "no-store" }).then(async (net) => {
+      cache.put(key, net.clone());
+      return net;
+    }).catch(() => null);
 
-    return caches.match("./index.html");
+    return cached || (await fetcher) || fetch(req);
   })());
 });

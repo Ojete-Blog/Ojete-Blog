@@ -1,33 +1,20 @@
 {
   "name": "GlobalEye Trends",
-  "short_name": "GE Trends",
+  "short_name": "Trends",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#07080C",
-  "theme_color": "#07080C",
-  "description": "Panel estilo X: tendencias en tiempo real (open data) + timeline embebido de @GlobalEye_TV. 100% GitHub Pages.",
+  "background_color": "#070A12",
+  "theme_color": "#070A12",
+  "description": "Feed de X (sin API) + tendencias actuales desde GDELT (open data).",
   "icons": [
     {
       "src": "./logo_ojo_png.png",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     },
     {
       "src": "./logo_ojo_png.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "./logo_ojo_png.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    },     
-    {
-      "src": "./logo_ojo_favicon.png",
       "sizes": "512x512",
       "type": "image/png"
     }
