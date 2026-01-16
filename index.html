@@ -5,52 +5,61 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
   <meta name="theme-color" content="#070A12" />
-  <meta name="description" content="Panel PRO para ver tu feed de X (sin API) + tendencias actuales desde GDELT (open data)." />
+  <meta name="description" content="GlobalEye Trends — Feed embebido de X (sin API) con media + tendencias actuales (open data)." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <meta name="robots" content="noindex,nofollow" />
+  <meta name="robots" content="index,follow" />
+
+  <link rel="preconnect" href="https://platform.twitter.com" crossorigin />
+  <link rel="dns-prefetch" href="//platform.twitter.com" />
 
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./logo_ojo_png.png" />
-  <link rel="apple-touch-icon" href="./logo_ojo_png.png" />
+  <link rel="icon" href="./logo_ojo_favicon.png" />
+  <link rel="apple-touch-icon" href="./logo_ojo_favicon.png" />
 
   <link rel="stylesheet" href="./styles.css" />
-
-  <!-- Widget oficial (feed con media: imágenes y vídeos). app.js también tiene fallback si esto no carga -->
   <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+  <script defer src="./app.js"></script>
 
   <title>GlobalEye Trends</title>
 </head>
 
 <body>
-  <!-- Ticker -->
+  <noscript>
+    <div class="noscript">Necesitas JavaScript activado para ver tendencias y el feed embebido.</div>
+  </noscript>
+
   <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker de tendencias">
     <div class="tickerInner">
       <img class="tickerLogo" src="./logo_ojo_png.png" alt="" />
       <div class="tickerViewport">
-        <div id="tickerTrack" class="tickerTrack"></div>
+        <div id="tickerTrack" class="tickerTrack" aria-label="Tendencias en ticker"></div>
       </div>
-      <button id="tickerClose" class="iconBtn" type="button" title="Cerrar ticker" aria-label="Cerrar ticker">✕</button>
+      <button id="tickerClose" class="iconBtn" type="button" aria-label="Cerrar ticker">✕</button>
     </div>
   </div>
 
-  <!-- Hero -->
-  <header class="hero">
-    <div class="heroLeft">
-      <img class="heroLogo" src="./logo_ojo_png.png" alt="Logo" />
-      <div class="heroText">
-        <div class="heroTitle">GlobalEye Trends</div>
-        <div class="heroSub">Feed de X (sin API) + tendencias actuales (open data).</div>
-      </div>
+  <header class="topbar" aria-label="GlobalEye Trends">
+    <div class="topBg" aria-hidden="true">
+      <img class="topBgImg" src="./banner_ojo.jpg" alt="" loading="eager" decoding="async" fetchpriority="high" />
+      <div class="topBgShade"></div>
     </div>
 
-    <div class="heroRight">
-      <div class="heroBtns">
-        <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Abrir @GlobalEye_TV</a>
+    <div class="topInner">
+      <div class="brand">
+        <img class="brandLogo" src="./logo_ojo_png.png" alt="Logo" />
+        <div class="brandText">
+          <div class="brandTitle">GlobalEye Trends</div>
+          <div class="brandSub">@GlobalEye_TV · feed con media + tendencias open data</div>
+        </div>
+      </div>
+
+      <div class="topActions">
+        <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Abrir en X</a>
         <button id="btnTicker" class="btn ghost" type="button" aria-pressed="false">Ticker</button>
         <button id="btnConfig" class="btn" type="button">Config</button>
       </div>
 
-      <div class="heroStatus">
+      <div class="topStatus" role="status" aria-label="Estado">
         <span class="pill" title="Estado de red">🌐 <span id="netStatus">Online</span></span>
         <span class="pill" title="Última actualización">⏱ <span id="lastUpdated">—</span></span>
       </div>
@@ -58,7 +67,6 @@
   </header>
 
   <main class="app">
-    <!-- Left -->
     <aside class="left">
       <div class="card">
         <div class="cardTitle">Acciones</div>
@@ -66,33 +74,30 @@
           <button id="btnRefresh" class="btn" type="button">Actualizar</button>
           <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">Compacto</button>
         </div>
-
         <div class="hint">
-          Tip: el feed de la derecha usa el widget oficial, por eso muestra <b>imágenes/vídeos</b> sin API.
+          El feed de la derecha usa el widget oficial, por eso muestra <b>imágenes/vídeos</b> sin API.
         </div>
       </div>
 
       <div class="card">
         <div class="cardTitle">Fuente</div>
         <div class="hint">
-          Tendencias calculadas desde titulares recientes vía <b>GDELT</b> (open data). Si tu navegador bloquea cosas (adblock), verás fallback.
+          Tendencias calculadas desde titulares recientes vía <b>GDELT</b> (open data). Si tu navegador bloquea el widget, verás fallback.
         </div>
       </div>
 
-      <!-- SOLO 1 botón de donación (evitamos duplicados) -->
       <div class="card donate">
-        <div class="cardTitle">Apoya el proyecto</div>
+        <div class="cardTitle">Apoya</div>
         <a class="btn kofi" href="https://ko-fi.com/" target="_blank" rel="noreferrer">Donar ☕</a>
-        <div class="hint muted">Cambia el enlace a tu Ko-fi real si quieres.</div>
+        <div class="hint muted">Cambia el enlace por tu Ko-fi real cuando quieras.</div>
       </div>
     </aside>
 
-    <!-- Center -->
     <section class="center">
       <div class="panel">
         <div class="panelHead">
           <div class="searchWrap">
-            <span class="searchIco">🔎</span>
+            <span class="searchIco" aria-hidden="true">🔎</span>
             <input id="q" class="search" type="search" placeholder="Filtrar tendencias… (ej: trump, barcelona, #bitcoin)" autocomplete="off" />
           </div>
 
@@ -137,12 +142,11 @@
         <div id="list" class="trendList" aria-live="polite"></div>
 
         <div class="panelFoot">
-          <span class="muted">*Sin API de X: el feed se carga con el widget oficial.</span>
+          <span class="muted">Sin API de X: el feed se carga con el widget oficial.</span>
         </div>
       </div>
     </section>
 
-    <!-- Right -->
     <aside class="right">
       <div class="panel">
         <div class="panelHead slim">
@@ -151,14 +155,14 @@
         </div>
 
         <div class="timelineWrap">
-          <!-- app.js monta aquí el widget -->
-          <div id="timelineMount" class="timelineMount"></div>
+          <div id="timelineMount" class="timelineMount" aria-label="Timeline embebido"></div>
         </div>
       </div>
     </aside>
   </main>
 
-  <!-- Config modal -->
+  <div id="toastHost" class="toasts" aria-live="polite" aria-relevant="additions"></div>
+
   <div id="cfgModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Configuración">
     <div class="modalCard">
       <div class="modalHead">
@@ -203,10 +207,5 @@
       </div>
     </div>
   </div>
-
-  <!-- Toasts -->
-  <div id="toastHost" class="toastHost" aria-live="polite" aria-atomic="true"></div>
-
-  <script defer src="./app.js"></script>
 </body>
 </html>

@@ -1,31 +1,19 @@
-/* app.js — GlobalEye Trends — v1.5.0
-   ✅ Feed embebido (widget oficial) — SIN API de X → muestra imágenes y vídeos
-   ✅ Tendencias desde GDELT (open data) + fallback JSONP
-   ✅ FIX: tendencias multi-palabra conservan espacios (“Donald Trump”)
-   ✅ FIX: mini-preview (thumbnail) cuando GDELT trae socialimage
-   ✅ Anti-duplicidades: guard + cleanup si hay hot reload / SW
-*/
-
 (() => {
   "use strict";
 
-  const APP_TAG = "globaleye-trends:v1.5.0";
+  const APP_TAG = "globaleye-trends:final-1.0.0";
 
-  // Guard + cleanup si otra versión estaba viva (evita duplicar listeners/botones)
-  try {
-    const prev = window.__GLOBAL_EYE_TRENDS__;
-    if (prev?.tag === APP_TAG) return;
-    if (typeof prev?.cleanup === "function") {
-      try { prev.cleanup(); } catch {}
-    }
-    window.__GLOBAL_EYE_TRENDS__ = { tag: APP_TAG, startedAt: Date.now(), cleanup: null };
-  } catch {}
+  const prev = window.__GLOBAL_EYE_TRENDS__;
+  if (prev?.tag === APP_TAG) return;
+  if (typeof prev?.cleanup === "function") { try { prev.cleanup(); } catch {} }
+  window.__GLOBAL_EYE_TRENDS__ = { tag: APP_TAG, cleanup: null };
 
-  /* ───────────────────────────── CONFIG ───────────────────────────── */
   const CFG = {
     profile: "GlobalEye_TV",
     profileUrlX: "https://x.com/GlobalEye_TV",
-    profileUrlTW: "https://twitter.com/GlobalEye_TV", // widgets suele ir mejor con twitter.com
+    profileUrlTW: "https://twitter.com/GlobalEye_TV",
+    twWidgets: "https://platform.twitter.com/widgets.js",
+
     gdeltBase: "https://api.gdeltproject.org/api/v2/doc/doc",
     xSearchBase: "https://x.com/search?q=",
 
@@ -33,22 +21,19 @@
     logoJpg: "./logo_ojo.jpg",
     toastGif: "./logo_ojo_gif.gif",
 
-    LS_SETTINGS: "ge_trends_settings_v5",
-    LS_FAVS: "ge_trends_favs_v5",
-    LS_RANKS: "ge_trends_ranks_v5",
-    LS_COMPACT: "ge_trends_compact_v5",
+    LS_SETTINGS: "ge_trends_settings_final_1",
+    LS_FAVS: "ge_trends_favs_final_1",
+    LS_RANKS: "ge_trends_ranks_final_1",
+    LS_COMPACT: "ge_trends_compact_final_1",
 
     FETCH_TIMEOUT_MS: 13500,
     MIN_REFRESH_MS: 35000,
 
     SW_URL: "./sw.js",
     SW_UPDATE_EVERY_MS: 8 * 60_000,
-    SS_SW_RELOADED: "ge_sw_reloaded_once_v3",
-
-    TW_WIDGETS: "https://platform.twitter.com/widgets.js"
+    SS_SW_RELOADED: "ge_sw_reloaded_once_final_1"
   };
 
-  /* ───────────────────────────── DOM ───────────────────────────── */
   const $ = (id) => document.getElementById(id);
 
   const elList = $("list");
@@ -88,52 +73,14 @@
   const timelineMount = $("timelineMount");
   const toastHost = $("toastHost");
 
-  /* ───────────────────────────── STOPWORDS / CATEGORÍAS ───────────────────────────── */
-  const STOP_ES = new Set([
-    "el","la","los","las","un","una","unos","unas","y","o","u","de","del","al","a","en","por","para","con","sin",
-    "se","su","sus","lo","le","les","que","como","más","mas","muy","ya","no","sí","si","es","son","fue","han","hay",
-    "este","esta","estos","estas","eso","esa","esos","esas","aquí","alli","allí","ahí",
-    "hoy","ayer","mañana","ante","tras","entre","sobre","contra","durante","desde","hasta","porque","cuando","donde",
-    "uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez"
-  ]);
-
-  const STOP_EN = new Set([
-    "the","a","an","and","or","to","of","in","on","for","with","without","at","by","from","as","is","are","was","were",
-    "be","been","it","its","this","that","these","those","today","yesterday","tomorrow","new","more","less","very"
-  ]);
-
-  function categoryOf(label){
-    const t = safeLower(label);
-
-    const sports = ["fc","real madrid","barcelona","uefa","fifa","nba","nfl","mlb","gol","match","liga","champions","tennis","f1","formula 1"];
-    const politics = ["gobierno","congreso","senado","presidente","elecciones","pp","psoe","vox","sanchez","trump","biden","putin","zelensky","ue","unión europea","parlamento","iran","israel","gaza","ucrania","rusia"];
-    const viral = ["meme","tiktok","viral","streamer","influencer","trend","challenge","onlyfans","clip","cringe"];
-
-    if (sports.some(k => t.includes(k))) return "sports";
-    if (politics.some(k => t.includes(k))) return "politics";
-    if (viral.some(k => t.includes(k))) return "viral";
-    return "news";
-  }
-
-  /* ───────────────────────────── STATE ───────────────────────────── */
-  const DEFAULT_SETTINGS = {
-    lang: "spanish",        // spanish | english | mixed
-    window: "4H",           // 2H | 4H | 6H | 12H
-    geo: "ES",              // ES | GLOBAL
-    maxTrends: 35,
-    maxArticles: 250,
-    autoRefresh: true,
-    refreshEveryMs: 120_000,
-    alertsEnabled: true,
-    tickerEnabled: false,
-    tickerSpeedSec: 28
-  };
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+  const safeLower = (s) => String(s ?? "").toLowerCase();
+  const nowISO = () => new Date().toLocaleString();
 
   const state = {
-    bound: false,
-    settings: { ...DEFAULT_SETTINGS },
-    view: "all",       // all | favs
-    category: "all",   // all|news|viral|politics|sports
+    settings: null,
+    view: "all",
+    category: "all",
     trends: [],
     filtered: [],
     favs: new Set(),
@@ -148,32 +95,18 @@
     _cleanups: []
   };
 
-  // Export cleanup
-  try {
-    window.__GLOBAL_EYE_TRENDS__.cleanup = () => {
-      // abort fetch
-      try { state.aborter?.abort?.(); } catch {}
-      // timers
-      if (state.refreshTimer) clearTimeout(state.refreshTimer);
-      if (state.swTick) clearInterval(state.swTick);
-      // listeners
-      for (const fn of state._cleanups.splice(0)) {
-        try { fn(); } catch {}
-      }
-    };
-  } catch {}
-
-  /* ───────────────────────────── UTIL ───────────────────────────── */
-  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-  const nowISO = () => new Date().toLocaleString();
+  window.__GLOBAL_EYE_TRENDS__.cleanup = () => {
+    try { state.aborter?.abort?.(); } catch {}
+    try { if (state.refreshTimer) clearTimeout(state.refreshTimer); } catch {}
+    try { if (state.swTick) clearInterval(state.swTick); } catch {}
+    for (const fn of state._cleanups.splice(0)) { try { fn(); } catch {} }
+  };
 
   function on(target, type, handler, opts){
     if (!target?.addEventListener) return;
     target.addEventListener(type, handler, opts);
     state._cleanups.push(() => target.removeEventListener(type, handler, opts));
   }
-
-  function safeLower(s){ return String(s ?? "").toLowerCase(); }
 
   function escapeHtml(s) {
     return String(s ?? "")
@@ -224,6 +157,7 @@
     };
     el.querySelector(".toastX")?.addEventListener("click", kill, { once:true });
     toastHost.appendChild(el);
+    requestAnimationFrame(() => {});
     setTimeout(kill, 3600);
   }
 
@@ -232,7 +166,6 @@
       await navigator.clipboard.writeText(String(text || ""));
       return true;
     }catch{
-      // fallback
       try{
         const ta = document.createElement("textarea");
         ta.value = String(text || "");
@@ -252,79 +185,74 @@
   function applyPngLogoIfAvailable(){
     const png = CFG.logoPng;
     const jpg = CFG.logoJpg;
-
     const img = new Image();
     img.onload = () => {
-      document.querySelectorAll("img.heroLogo, img.logoImg, img.tickerLogo")
-        .forEach(el => {
-          el.src = png;
-          try{ el.style.objectFit = "contain"; }catch{}
-        });
-
-      document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach(l => {
-        try{ l.href = png; }catch{}
+      document.querySelectorAll("img.brandLogo, img.tickerLogo").forEach(el => {
+        el.src = png;
+        try{ el.style.objectFit = "cover"; }catch{}
       });
     };
     img.onerror = () => {
-      document.querySelectorAll("img.heroLogo, img.logoImg, img.tickerLogo")
-        .forEach(el => { el.src = jpg; });
+      document.querySelectorAll("img.brandLogo, img.tickerLogo").forEach(el => { el.src = jpg; });
     };
     img.src = png;
   }
 
-  /* ───────────────────────────── SETTINGS I/O ───────────────────────────── */
-  function loadSettings() {
-    try {
+  const DEFAULT_SETTINGS = {
+    lang: "spanish",
+    window: "4H",
+    geo: "ES",
+    maxTrends: 35,
+    maxArticles: 250,
+    autoRefresh: true,
+    refreshEveryMs: 120_000,
+    alertsEnabled: true,
+    tickerEnabled: false,
+    tickerSpeedSec: 28
+  };
+
+  function loadSettings(){
+    let s = null;
+    try{
       const raw = localStorage.getItem(CFG.LS_SETTINGS);
-      if (!raw) return;
-      const s = JSON.parse(raw);
+      if (raw) s = JSON.parse(raw);
+    }catch{}
+    state.settings = { ...DEFAULT_SETTINGS, ...(s || {}) };
 
-      state.settings = { ...DEFAULT_SETTINGS, ...(s || {}) };
+    state.settings.maxTrends = clamp(Number(state.settings.maxTrends || 35), 10, 80);
+    state.settings.maxArticles = clamp(Number(state.settings.maxArticles || 250), 50, 500);
+    state.settings.refreshEveryMs = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
+    state.settings.tickerSpeedSec = clamp(Number(state.settings.tickerSpeedSec || 28), 12, 120);
 
-      // compat/hardening
-      state.settings.maxTrends = clamp(Number(state.settings.maxTrends || 35), 10, 80);
-      state.settings.maxArticles = clamp(Number(state.settings.maxArticles || 250), 50, 500);
-      state.settings.refreshEveryMs = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
-      state.settings.tickerSpeedSec = clamp(Number(state.settings.tickerSpeedSec || 28), 12, 120);
+    if (!["spanish","english","mixed"].includes(state.settings.lang)) state.settings.lang = "spanish";
+    if (!["2H","4H","6H","12H"].includes(String(state.settings.window).toUpperCase())) state.settings.window = "4H";
+    if (!["ES","GLOBAL"].includes(String(state.settings.geo).toUpperCase())) state.settings.geo = "ES";
 
-      if (!["spanish","english","mixed"].includes(state.settings.lang)) state.settings.lang = "spanish";
-      if (!["2H","4H","6H","12H"].includes(String(state.settings.window).toUpperCase())) state.settings.window = "4H";
-      if (!["ES","GLOBAL"].includes(String(state.settings.geo).toUpperCase())) state.settings.geo = "ES";
-    } catch {}
+    try{
+      const favRaw = localStorage.getItem(CFG.LS_FAVS);
+      const favArr = favRaw ? JSON.parse(favRaw) : null;
+      if (Array.isArray(favArr)) state.favs = new Set(favArr.map(String));
+    }catch{}
+
+    try{
+      const ranksRaw = localStorage.getItem(CFG.LS_RANKS);
+      const ranksObj = ranksRaw ? JSON.parse(ranksRaw) : null;
+      if (ranksObj && typeof ranksObj === "object") state.ranks = ranksObj;
+    }catch{}
+
+    try{
+      state.compact = localStorage.getItem(CFG.LS_COMPACT) === "1";
+    }catch{}
   }
 
-  function saveSettings() {
+  function saveSettings(){
     try { localStorage.setItem(CFG.LS_SETTINGS, JSON.stringify(state.settings)); } catch {}
     try { localStorage.setItem(CFG.LS_FAVS, JSON.stringify([...state.favs])); } catch {}
     try { localStorage.setItem(CFG.LS_RANKS, JSON.stringify(state.ranks)); } catch {}
     try { localStorage.setItem(CFG.LS_COMPACT, state.compact ? "1" : "0"); } catch {}
   }
 
-  function loadFavs() {
-    try {
-      const raw = localStorage.getItem(CFG.LS_FAVS);
-      if (!raw) return;
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) state.favs = new Set(arr.map(String));
-    } catch {}
-  }
-
-  function loadLastRanks() {
-    try {
-      const raw = localStorage.getItem(CFG.LS_RANKS);
-      if (!raw) return;
-      const obj = JSON.parse(raw);
-      if (obj && typeof obj === "object") state.ranks = obj;
-    } catch {}
-  }
-
-  function loadCompact() {
-    try {
-      state.compact = localStorage.getItem(CFG.LS_COMPACT) === "1";
-    } catch {}
-  }
-
-  function applySettingsToUI() {
+  function applySettingsToUI(){
     if (selLang) selLang.value = state.settings.lang;
     if (selWindow) selWindow.value = state.settings.window;
     if (selGeo) selGeo.value = state.settings.geo;
@@ -342,22 +270,21 @@
     btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
 
     setTickerVisible(!!state.settings.tickerEnabled);
-    if (btnTicker) btnTicker.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
+    btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
   }
 
-  /* ───────────────────────────── UI HELPERS ───────────────────────────── */
-  function pickTimespanUi() {
+  function pickTimespanUi(){
     const v = String(selWindow?.value || state.settings.window || "4H").toUpperCase();
     return (["2H","4H","6H","12H"].includes(v)) ? v : "4H";
   }
-  function pickTimespanGdelt() { return pickTimespanUi().toLowerCase(); } // "4h"
-  function pickLang() {
+  function pickTimespanGdelt(){ return pickTimespanUi().toLowerCase(); }
+  function pickLang(){
     const v = String(selLang?.value || state.settings.lang || "spanish").toLowerCase();
     if (v === "mixed") return "mixed";
     if (v === "english") return "english";
     return "spanish";
   }
-  function pickGeo() {
+  function pickGeo(){
     const v = String(selGeo?.value || state.settings.geo || "ES").toUpperCase();
     return (v === "GLOBAL") ? "GLOBAL" : "ES";
   }
@@ -387,14 +314,13 @@
     on ? tickerBar.classList.remove("hidden") : tickerBar.classList.add("hidden");
   }
 
-  /* ───────────────────────────── FEED (WIDGET OFICIAL) ───────────────────────────── */
   function ensureWidgetsScript(){
     try{
       if (window.twttr?.widgets) return true;
-      if (document.querySelector(`script[src="${CFG.TW_WIDGETS}"]`)) return true;
+      if (document.querySelector(`script[src="${CFG.twWidgets}"]`)) return true;
       const s = document.createElement("script");
       s.async = true;
-      s.src = CFG.TW_WIDGETS;
+      s.src = CFG.twWidgets;
       s.charset = "utf-8";
       document.head.appendChild(s);
       return true;
@@ -411,18 +337,15 @@
     const a = document.createElement("a");
     a.className = "twitter-timeline";
     a.href = CFG.profileUrlTW;
-
-    // Ajustes para que el feed tenga MUCHA más probabilidad de mostrar media y verse bien
     a.setAttribute("data-theme", "dark");
-    a.setAttribute("data-chrome", "noheader nofooter transparent");
     a.setAttribute("data-dnt", "true");
-    a.setAttribute("data-height", "720"); // más alto = más media visible
-
-    // NO usamos data-tweet-limit: así el iframe mantiene scroll y no “recorta” layout
+    a.setAttribute("data-chrome", "noheader nofooter");
+    a.setAttribute("data-height", "720");
     a.textContent = `Tweets by @${CFG.profile}`;
+
     timelineMount.appendChild(a);
 
-    const ok = ensureWidgetsScript();
+    ensureWidgetsScript();
 
     const tryLoad = () => {
       try{
@@ -430,13 +353,10 @@
       }catch{}
     };
 
-    if (ok){
-      tryLoad();
-      setTimeout(tryLoad, 1200);
-      setTimeout(tryLoad, 2600);
-    }
+    tryLoad();
+    setTimeout(tryLoad, 1200);
+    setTimeout(tryLoad, 2600);
 
-    // fallback si a los 9s no hay iframe (bloqueos)
     setTimeout(() => {
       const hasIframe = !!timelineMount.querySelector("iframe");
       if (hasIframe) return;
@@ -447,15 +367,14 @@
       div.id = "tl_fallback_hint";
       div.className = "timelineFallback";
       div.innerHTML = `
-        <div class="tlTitle">Timeline no cargó</div>
-        <div class="tlText">Algunos navegadores/adblock bloquean el widget. Abre el perfil directamente:</div>
+        <div class="tlTitle">El feed no cargó</div>
+        <div class="tlText">Algunos navegadores/adblock bloquean el widget. Puedes abrir el perfil directamente:</div>
         <a class="tlBtn" href="${CFG.profileUrlX}" target="_blank" rel="noreferrer">Abrir @${CFG.profile}</a>
       `;
       timelineMount.appendChild(div);
     }, 9000);
   }
 
-  /* ───────────────────────────── GDELT: URL + FETCH + JSONP FALLBACK ───────────────────────────── */
   function buildGdeltQuery(){
     const lang = pickLang();
     const geo = pickGeo();
@@ -464,16 +383,13 @@
     if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
     else q = `sourcelang:${lang}`;
 
-    // Global abre señal un poco
     if (geo === "GLOBAL" && lang === "spanish"){
       q = `(sourcelang:spanish OR sourcelang:english)`;
     }
-
-    // (intencional) sin filtros “duros” de país para no matar volumen
     return q;
   }
 
-  function buildGdeltUrl(format /* json | jsonp */, cbName){
+  function buildGdeltUrl(format, cbName){
     const params = new URLSearchParams();
     params.set("format", format);
     params.set("mode", "artlist");
@@ -529,23 +445,41 @@
   }
 
   async function getGdeltData(signal){
-    // 1) JSON normal
     try{
       const url = buildGdeltUrl("json");
       const res = await fetchWithTimeout(url, CFG.FETCH_TIMEOUT_MS, signal);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     }catch{
-      // 2) JSONP fallback
       const cb = `__gdelt_cb_${Date.now()}_${Math.floor(Math.random()*1e6)}`;
       const url = buildGdeltUrl("jsonp", cb);
       return await jsonp(url, cb, CFG.FETCH_TIMEOUT_MS);
     }
   }
 
-  /* ───────────────────────────── TOKENS / FRASES (FIX ESPACIOS) ───────────────────────────── */
+  const STOP_ES = new Set([
+    "el","la","los","las","un","una","unos","unas","y","o","u","de","del","al","a","en","por","para","con","sin",
+    "se","su","sus","lo","le","les","que","como","más","mas","muy","ya","no","sí","si","es","son","fue","han","hay",
+    "este","esta","estos","estas","eso","esa","esos","esas","aquí","alli","allí","ahí",
+    "hoy","ayer","mañana","ante","tras","entre","sobre","contra","durante","desde","hasta","porque","cuando","donde",
+    "uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez"
+  ]);
+  const STOP_EN = new Set([
+    "the","a","an","and","or","to","of","in","on","for","with","without","at","by","from","as","is","are","was","were",
+    "be","been","it","its","this","that","these","those","today","yesterday","tomorrow","new","more","less","very"
+  ]);
 
-  // Para tokens simples (#/@/palabra)
+  function categoryOf(label){
+    const t = safeLower(label);
+    const sports = ["fc","real madrid","barcelona","uefa","fifa","nba","nfl","mlb","gol","match","liga","champions","tennis","f1","formula 1"];
+    const politics = ["gobierno","congreso","senado","presidente","elecciones","pp","psoe","vox","sanchez","trump","biden","putin","zelensky","ue","unión europea","parlamento","iran","israel","gaza","ucrania","rusia"];
+    const viral = ["meme","tiktok","viral","streamer","influencer","trend","challenge","onlyfans","clip","cringe"];
+    if (sports.some(k => t.includes(k))) return "sports";
+    if (politics.some(k => t.includes(k))) return "politics";
+    if (viral.some(k => t.includes(k))) return "viral";
+    return "news";
+  }
+
   function normalizeToken(t){
     return safeLower(t)
       .replace(/[\u2019']/g, "")
@@ -553,7 +487,6 @@
       .trim();
   }
 
-  // Para frases: preserva espacios (clave del fix)
   function normalizePhrase(t){
     return safeLower(t)
       .replace(/[\u2019']/g, "")
@@ -567,29 +500,25 @@
     const s = String(tokenOrPhrase).trim();
     if (!s) return true;
 
-    // Si es frase: descarta solo si TODAS las palabras son stopwords / muy cortas
+    const lang = pickLang();
+    const stopSet = (lang === "english") ? STOP_EN : (lang === "spanish") ? STOP_ES : null;
+
     if (s.includes(" ")){
       const words = s.split(" ").map(w => w.replace(/^[@#]/,"")).filter(Boolean);
       if (!words.length) return true;
 
-      const lang = pickLang();
-      const stop = (w) => {
+      const isStopWord = (w) => {
         if (w.length <= 2) return true;
-        if (lang === "english") return STOP_EN.has(w);
-        if (lang === "spanish") return STOP_ES.has(w);
+        if (stopSet) return stopSet.has(w);
         return STOP_ES.has(w) || STOP_EN.has(w);
       };
 
-      return words.every(stop);
+      return words.every(isStopWord);
     }
 
     const t = s.replace(/^[@#]/, "");
-    if (!t) return true;
-    if (t.length <= 2) return true;
-
-    const lang = pickLang();
-    if (lang === "english") return STOP_EN.has(t);
-    if (lang === "spanish") return STOP_ES.has(t);
+    if (!t || t.length <= 2) return true;
+    if (stopSet) return stopSet.has(t);
     return STOP_ES.has(t) || STOP_EN.has(t);
   }
 
@@ -614,9 +543,7 @@
   }
 
   function extractEntityPhrases(words){
-    // Une secuencias tipo: "Donald Trump", "María del Mar", "Real Madrid"
     const connectors = new Set(["de","del","la","las","los","y","da","do","dos","das","van","von","of","the"]);
-
     const phrases = [];
     let buf = [];
 
@@ -640,7 +567,6 @@
       const lower = safeLower(w.base);
       const isConn = connectors.has(lower);
 
-      // Si es palabra Capitalizada, la metemos. Si es conector, sólo si ya hay buffer.
       if (w.cap){
         buf.push(w.raw);
       } else if (isConn && buf.length){
@@ -651,7 +577,6 @@
     }
     flush();
 
-    // de-dup por key
     const seen = new Set();
     return phrases.filter(p => (p.key && !seen.has(p.key) && (seen.add(p.key), true)));
   }
@@ -663,38 +588,28 @@
       .filter(Boolean);
 
     const out = [];
-
     const pushN = (n) => {
       for (let i=0;i<=tokens.length-n;i++){
         const slice = tokens.slice(i, i+n);
-
-        // Evita frases basura con stopwords dominantes
-        if (slice.every(isStop)) continue;
-
         const label = slice.join(" ");
         const key = normalizePhrase(label);
         if (!key || isStop(key)) continue;
-
         out.push({ key, label });
       }
     };
-
     pushN(2);
     pushN(3);
 
-    // dedup
     const seen = new Set();
     return out.filter(p => (p.key && !seen.has(p.key) && (seen.add(p.key), true)));
   }
 
-  /* ───────────────────────────── TREND COMPUTE ───────────────────────────── */
   function computeTrends(articles){
-    const scores = new Map(); // key -> score
-    const meta = new Map();   // key -> {label, exampleUrl, sampleTitle, sampleImage}
+    const scores = new Map();
+    const meta = new Map();
 
     function bump(key, label, add, a){
       if (!key || isStop(key)) return;
-
       scores.set(key, (scores.get(key) || 0) + add);
 
       if (!meta.has(key)){
@@ -717,33 +632,21 @@
 
       const words = splitWords(title);
 
-      // hashtags / mentions
       for (const w of words){
         if (w.isHash && w.norm.length >= 3) bump(w.norm, w.raw, 6, a);
         if (w.isAt && w.norm.length >= 3) bump(w.norm, w.raw, 5, a);
       }
 
-      // tokens base (no-stop)
       for (const w of words){
         if (!w.base) continue;
         if (isStop(w.base)) continue;
-
-        // cap = nombre propio → un poco más
         bump(w.base, w.raw, w.cap ? 2.2 : 1.2, a);
       }
 
-      // frases entidad
-      for (const p of extractEntityPhrases(words)){
-        bump(p.key, p.label, 4.5, a);
-      }
-
-      // ngrams
-      for (const p of extractNgrams(words)){
-        bump(p.key, p.label, 2.0, a);
-      }
+      for (const p of extractEntityPhrases(words)) bump(p.key, p.label, 4.5, a);
+      for (const p of extractNgrams(words)) bump(p.key, p.label, 2.0, a);
     }
 
-    // build list
     const items = [];
     for (const [key, score] of scores.entries()){
       const m = meta.get(key) || { label: key, exampleUrl: "", sampleTitle: "", sampleImage:"" };
@@ -759,18 +662,15 @@
       });
     }
 
-    // sort desc
     items.sort((a,b) => b.score - a.score);
 
-    // rank + delta
     const ranked = items.map((it, idx) => {
       const rank = idx + 1;
-      const prev = state.ranks[it.key];
-      const delta = (typeof prev === "number") ? (prev - rank) : 0; // + = sube, - = baja
+      const prevRank = state.ranks[it.key];
+      const delta = (typeof prevRank === "number") ? (prevRank - rank) : 0;
       return { ...it, rank, delta };
     });
 
-    // guarda ranks actuales
     const nextRanks = Object.create(null);
     for (const it of ranked) nextRanks[it.key] = it.rank;
     state.ranks = nextRanks;
@@ -782,14 +682,10 @@
     let q = String(label || "").trim();
     if (!q) return CFG.profileUrlX;
 
-    // Si es multi-palabra y no es #/@ → entre comillas para búsqueda exacta
-    if (!q.startsWith("#") && !q.startsWith("@") && /\s/.test(q)) {
-      q = `"${q}"`;
-    }
+    if (!q.startsWith("#") && !q.startsWith("@") && /\s/.test(q)) q = `"${q}"`;
     return CFG.xSearchBase + encodeURIComponent(q);
   }
 
-  /* ───────────────────────────── RENDER ───────────────────────────── */
   function render(list){
     if (!elList) return;
 
@@ -809,7 +705,7 @@
       })();
 
       const badgeCat = (() => {
-        if (state.category !== "all") return ""; // ya filtrado
+        if (state.category !== "all") return "";
         if (it.cat === "sports") return `<span class="badge warn">Deportes</span>`;
         if (it.cat === "politics") return `<span class="badge bad">Política</span>`;
         if (it.cat === "viral") return `<span class="badge good">Viral</span>`;
@@ -824,18 +720,16 @@
         const url = it.exampleUrl ? String(it.exampleUrl) : "";
         const img = it.sampleImage ? String(it.sampleImage) : "";
 
-        if (!url || (!title && !img)) return "";
+        if (!url && !img && !title) return "";
 
         const imgHtml = img
-          ? `<img class="tThumb" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer"
-                 onerror="this.style.display='none';" />`
+          ? `<img class="tThumb" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';" />`
           : "";
 
-        const linkHtml = title
-          ? `<a class="tLink" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${title}</a>`
-          : `<a class="tLink" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Abrir fuente</a>`;
+        const linkText = title || "Abrir fuente";
+        const linkHref = url || (img || "#");
 
-        return `<div class="tMedia">${imgHtml}${linkHtml}</div>`;
+        return `<div class="tMedia">${imgHtml}<a class="tLink" href="${escapeHtml(linkHref)}" target="_blank" rel="noreferrer">${escapeHtml(linkText)}</a></div>`;
       })();
 
       row.innerHTML = `
@@ -855,15 +749,14 @@
         </div>
 
         <div class="actions">
-          <button class="${favCls}" type="button" title="Favorito">★</button>
-          <a class="aBtn" href="${escapeHtml(buildXSearchUrl(it.label))}" target="_blank" rel="noreferrer" title="Buscar en X">X</a>
-          <button class="aBtn" type="button" title="Copiar">⎘</button>
+          <button class="${favCls}" type="button" title="Favorito" aria-label="Favorito">★</button>
+          <a class="aBtn" href="${escapeHtml(buildXSearchUrl(it.label))}" target="_blank" rel="noreferrer" title="Buscar en X" aria-label="Buscar en X">X</a>
+          <button class="aBtn" type="button" title="Copiar" aria-label="Copiar">⎘</button>
         </div>
       `;
 
-      // bind actions
       const btnStar = row.querySelector(".aBtn.star");
-      const btnCopy = row.querySelectorAll(".aBtn")[2]; // el tercero es copiar (star, link, copy)
+      const btnCopy = row.querySelectorAll(".aBtn")[2];
 
       btnStar?.addEventListener("click", () => {
         if (state.favs.has(it.key)) state.favs.delete(it.key);
@@ -899,7 +792,6 @@
         </a>`;
     }).join("");
 
-    // duplicamos para loop suave (50%)
     tickerTrack.innerHTML = make(items) + make(items);
   }
 
@@ -908,22 +800,10 @@
 
     let arr = state.trends.slice();
 
-    // view
-    if (state.view === "favs"){
-      arr = arr.filter(x => state.favs.has(x.key));
-    }
+    if (state.view === "favs") arr = arr.filter(x => state.favs.has(x.key));
+    if (state.category !== "all") arr = arr.filter(x => x.cat === state.category);
+    if (q) arr = arr.filter(x => safeLower(x.label).includes(q) || safeLower(x.key).includes(q));
 
-    // cat
-    if (state.category !== "all"){
-      arr = arr.filter(x => x.cat === state.category);
-    }
-
-    // search filter
-    if (q){
-      arr = arr.filter(x => safeLower(x.label).includes(q) || safeLower(x.key).includes(q));
-    }
-
-    // re-rank visible list
     arr = arr.map((x, i) => ({ ...x, rank: i + 1 }));
 
     state.filtered = arr;
@@ -933,14 +813,11 @@
     updateTicker(arr);
   }
 
-  /* ───────────────────────────── REFRESH / SCHEDULE ───────────────────────────── */
   async function refresh(){
     setErr("");
     setEmpty(false);
-
     if (elLast) elLast.textContent = "Cargando…";
 
-    // abort anterior
     try { state.aborter?.abort?.(); } catch {}
     state.aborter = new AbortController();
 
@@ -952,16 +829,15 @@
       saveSettings();
 
       if (elLast) elLast.textContent = nowISO();
-
       applyFilter();
-    }catch(err){
-      setErr("No se pudo cargar tendencias. Prueba de nuevo o desactiva adblock/privacidad estricta.");
+    }catch{
+      setErr("No se pudo cargar tendencias. Prueba otra ventana (6H/12H) o desactiva privacidad estricta/adblock.");
       if (elLast) elLast.textContent = nowISO();
     }
   }
 
   function schedule(){
-    if (state.refreshTimer) clearTimeout(state.refreshTimer);
+    try { if (state.refreshTimer) clearTimeout(state.refreshTimer); } catch {}
     if (!state.settings.autoRefresh) return;
 
     const ms = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
@@ -971,7 +847,6 @@
     }, ms);
   }
 
-  /* ───────────────────────────── SW AUTO UPDATE ───────────────────────────── */
   async function swSkipWaiting(reg){
     try{
       if (!reg?.waiting) return;
@@ -994,9 +869,7 @@
         }catch{}
       };
 
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        reloadOnce();
-      });
+      navigator.serviceWorker.addEventListener("controllerchange", () => { reloadOnce(); });
 
       const tick = async () => {
         try{
@@ -1005,21 +878,27 @@
         }catch{}
       };
 
-      if (state.swTick) clearInterval(state.swTick);
+      try { if (state.swTick) clearInterval(state.swTick); } catch {}
       state.swTick = setInterval(tick, CFG.SW_UPDATE_EVERY_MS);
 
-      document.addEventListener("visibilitychange", () => {
+      on(document, "visibilitychange", () => {
         if (document.visibilityState === "visible") tick();
       }, { passive:true });
 
       tick();
-    }catch{
-      // sin SW, la app sigue
-    }
+    }catch{}
   }
 
-  /* ───────────────────────────── BIND ───────────────────────────── */
-  function bindTabs(){
+  function bindUI(){
+    on(btnRefresh, "click", async () => { await refresh(); schedule(); });
+    on(btnCompact, "click", () => { toggleCompact(); });
+
+    on(inpQ, "input", () => applyFilter());
+
+    on(selLang, "change", async () => { state.settings.lang = pickLang(); saveSettings(); await refresh(); schedule(); });
+    on(selWindow, "change", async () => { state.settings.window = pickTimespanUi(); saveSettings(); await refresh(); schedule(); });
+    on(selGeo, "change", async () => { state.settings.geo = pickGeo(); saveSettings(); await refresh(); schedule(); });
+
     on(tabsView, "click", (e) => {
       const btn = e.target?.closest?.(".tab");
       if (!btn) return;
@@ -1036,17 +915,26 @@
       setActiveTab(tabsCat, "data-cat", state.category);
       applyFilter();
     });
-  }
 
-  function bindConfig(){
-    on(btnConfig, "click", openConfig);
-    on(cfgClose, "click", closeConfig);
-
-    on(cfgModal, "click", (e) => {
-      if (e.target === cfgModal) closeConfig();
+    on(btnTicker, "click", () => {
+      state.settings.tickerEnabled = !state.settings.tickerEnabled;
+      btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
+      setTickerVisible(state.settings.tickerEnabled);
+      saveSettings();
     });
 
-    on(cfgSave, "click", () => {
+    on(tickerClose, "click", () => {
+      state.settings.tickerEnabled = false;
+      btnTicker?.setAttribute("aria-pressed", "false");
+      setTickerVisible(false);
+      saveSettings();
+    });
+
+    on(btnConfig, "click", openConfig);
+    on(cfgClose, "click", closeConfig);
+    on(cfgModal, "click", (e) => { if (e.target === cfgModal) closeConfig(); });
+
+    on(cfgSave, "click", async () => {
       const everySec = clamp(Number(cfgEvery?.value || 120), 35, 900);
       const maxT = clamp(Number(cfgMaxTrends?.value || 35), 10, 80);
       const tSpd = clamp(Number(cfgTickerSpeed?.value || 28), 12, 120);
@@ -1058,101 +946,37 @@
       state.settings.tickerEnabled = !!cfgTicker?.checked;
       state.settings.tickerSpeedSec = tSpd;
 
-      document.documentElement.style.setProperty("--tickerDur", `${tSpd}s`);
+      document.documentElement.style.setProperty("--tickerDur", `${state.settings.tickerSpeedSec}s`);
       setTickerVisible(state.settings.tickerEnabled);
       btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
 
       saveSettings();
       closeConfig();
+      await refresh();
       schedule();
-      applyFilter();
-      toast("Guardado", "Configuración aplicada.");
-    });
-  }
-
-  function bindTicker(){
-    on(btnTicker, "click", () => {
-      state.settings.tickerEnabled = !state.settings.tickerEnabled;
-      setTickerVisible(state.settings.tickerEnabled);
-      btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
-      if (cfgTicker) cfgTicker.checked = state.settings.tickerEnabled;
-      saveSettings();
-    });
-
-    on(tickerClose, "click", () => {
-      state.settings.tickerEnabled = false;
-      setTickerVisible(false);
-      btnTicker?.setAttribute("aria-pressed", "false");
-      if (cfgTicker) cfgTicker.checked = false;
-      saveSettings();
-    });
-  }
-
-  function bind(){
-    if (state.bound) return;
-    state.bound = true;
-
-    on(btnRefresh, "click", async () => { await refresh(); schedule(); });
-    on(btnCompact, "click", toggleCompact);
-    on(inpQ, "input", applyFilter);
-
-    on(selLang, "change", () => {
-      state.settings.lang = pickLang();
-      saveSettings();
-      if (inpQ) inpQ.value = "";
-      refresh(); schedule();
-    });
-
-    on(selWindow, "change", () => {
-      state.settings.window = pickTimespanUi();
-      saveSettings();
-      if (inpQ) inpQ.value = "";
-      refresh(); schedule();
-    });
-
-    on(selGeo, "change", () => {
-      state.settings.geo = pickGeo();
-      saveSettings();
-      if (inpQ) inpQ.value = "";
-      refresh(); schedule();
     });
 
     on(window, "online", () => setNet(true));
     on(window, "offline", () => setNet(false));
-
-    bindTabs();
-    bindConfig();
-    bindTicker();
-
-    setActiveTab(tabsView, "data-view", state.view);
-    setActiveTab(tabsCat, "data-cat", state.category);
   }
 
-  /* ───────────────────────────── BOOT ───────────────────────────── */
-  async function boot(){
+  (async function init(){
     applyPngLogoIfAvailable();
 
     loadSettings();
-    loadFavs();
-    loadLastRanks();
-    loadCompact();
-
-    state.settings.lang = state.settings.lang || pickLang();
-    state.settings.window = state.settings.window || pickTimespanUi();
-    state.settings.geo = state.settings.geo || pickGeo();
-
     applySettingsToUI();
-    bind();
+
     setNet(navigator.onLine);
 
-    initAutoUpdateSW();
+    setActiveTab(tabsView, "data-view", state.view);
+    setActiveTab(tabsCat, "data-cat", state.category);
 
-    // feed con media (sin API)
+    bindUI();
+
     mountTimeline();
+    initAutoUpdateSW();
 
     await refresh();
     schedule();
-  }
-
-  boot();
+  })();
 })();

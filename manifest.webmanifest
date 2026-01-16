@@ -1,20 +1,19 @@
 {
   "name": "GlobalEye Trends",
-  "short_name": "Trends",
+  "short_name": "GlobalEye",
   "start_url": "./",
-  "scope": "./",
   "display": "standalone",
   "background_color": "#070A12",
   "theme_color": "#070A12",
-  "description": "Feed de X (sin API) + tendencias actuales desde GDELT (open data).",
+  "description": "Feed embebido de X (sin API) con media + tendencias actuales (open data).",
   "icons": [
     {
-      "src": "./logo_ojo_png.png",
+      "src": "./logo_ojo_favicon.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "./logo_ojo_png.png",
+      "src": "./logo_ojo_favicon.png",
       "sizes": "512x512",
       "type": "image/png"
     }

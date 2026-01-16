@@ -1,8 +1,6 @@
-/* sw.js — GlobalEye Trends — v1.5.0 (cache-bust + auto-update) */
-
 "use strict";
 
-const SW_VERSION = "ge-trends-sw-v5";
+const SW_VERSION = "ge-trends-sw-final-1";
 const CACHE_CORE = `${SW_VERSION}::core`;
 const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
 
@@ -11,13 +9,17 @@ const CORE = [
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.webmanifest"
+  "./manifest.webmanifest",
+  "./logo_ojo_png.png",
+  "./logo_ojo_favicon.png",
+  "./logo_ojo.jpg",
+  "./logo_ojo_gif.gif",
+  "./banner_ojo.jpg"
 ];
 
 function normalizeCacheKey(reqUrl){
   try{
     const u = new URL(reqUrl, self.location.origin);
-    // limpia típicos cache-busters
     ["v","cb","_","__tnp","__ge","__ts"].forEach(k => u.searchParams.delete(k));
     return u.toString();
   }catch{
@@ -30,9 +32,7 @@ self.addEventListener("install", (event) => {
     try{
       const cache = await caches.open(CACHE_CORE);
       await cache.addAll(CORE);
-    }catch{
-      // si falla precache por algún asset, seguimos
-    }
+    }catch{}
     self.skipWaiting();
   })());
 });
@@ -52,9 +52,7 @@ self.addEventListener("message", (event) => {
   const msg = event?.data;
   if (!msg) return;
 
-  if (msg.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
+  if (msg.type === "SKIP_WAITING") self.skipWaiting();
 
   if (msg.type === "CLEAR_CACHES") {
     event.waitUntil((async () => {
@@ -70,15 +68,11 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // no cachear cross-origin sensibles (X widgets, etc.)
-  if (url.origin !== self.location.origin) {
-    return;
-  }
+  if (url.origin !== self.location.origin) return;
 
   const isHtml = req.headers.get("accept")?.includes("text/html");
   const isCore = CORE.some(p => req.url.endsWith(p.replace("./","/")) || req.url.endsWith(p.replace("./","")));
 
-  // HTML: network-first (evita quedarte pegado en index viejo)
   if (isHtml) {
     event.respondWith((async () => {
       try{
@@ -95,7 +89,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Core: stale-while-revalidate
   if (isCore) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_CORE);
@@ -110,7 +103,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Runtime: stale-while-revalidate con key normalizada
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_RUNTIME);
     const key = normalizeCacheKey(req.url);
