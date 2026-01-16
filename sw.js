@@ -1,13 +1,13 @@
-/* sw.js — GlobalEye Trends — cache v3 (GitHub Pages friendly + update real)
+/* sw.js — GlobalEye Trends — cache v4 (GitHub Pages friendly + update real)
    ✅ Network-first para navegación (HTML)
    ✅ Stale-while-revalidate para assets SAME-ORIGIN
-   ✅ No cachea GDELT ni cross-origin
-   ✅ Soporta SKIP_WAITING + CLEAR_CACHES
+   ✅ No cachea GDELT ni platform.twitter.com
+   ✅ SKIP_WAITING + CLEAR_CACHES
 */
 
 "use strict";
 
-const CACHE = "ge-trends-v3";
+const CACHE = "ge-trends-v4";
 const CORE = [
   "./",
   "./index.html",
@@ -25,15 +25,12 @@ self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
 
-    // Precarga robusta (evita quedarte con archivos viejos)
     await Promise.all(CORE.map(async (url) => {
       try{
         const req = new Request(url, { cache: "reload" });
         const res = await fetch(req);
         if (res.ok) await c.put(req, res.clone());
-      }catch{
-        // si algún asset falla, no rompe la instalación
-      }
+      }catch{}
     }));
 
     self.skipWaiting();
@@ -50,9 +47,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("message", (e) => {
   const type = e?.data?.type;
-  if (type === "SKIP_WAITING"){
-    self.skipWaiting();
-  }
+  if (type === "SKIP_WAITING") self.skipWaiting();
+
   if (type === "CLEAR_CACHES"){
     e.waitUntil((async () => {
       const keys = await caches.keys();
@@ -67,13 +63,13 @@ self.addEventListener("fetch", (e) => {
 
   const url = new URL(req.url);
 
-  // Nunca cachear la API (siempre live)
+  // Nunca cachear GDELT (siempre live)
   if (url.hostname.includes("gdeltproject.org") || url.hostname.includes("api.gdeltproject.org")){
     e.respondWith(fetch(req));
     return;
   }
 
-  // No cachear cross-origin (ej: platform.twitter.com)
+  // Nunca cachear cross-origin (widgets de X)
   const sameOrigin = (url.origin === self.location.origin);
   if (!sameOrigin){
     e.respondWith(fetch(req));
@@ -86,7 +82,7 @@ self.addEventListener("fetch", (e) => {
       try{
         const fresh = await fetch(new Request(req.url, { cache: "no-store" }));
         const c = await caches.open(CACHE);
-        c.put("./index.html", fresh.clone());
+        c.put(new Request("./index.html"), fresh.clone());
         return fresh;
       }catch{
         const cached = await caches.match(req);
@@ -101,27 +97,25 @@ self.addEventListener("fetch", (e) => {
     const c = await caches.open(CACHE);
     const cached = await c.match(req);
 
-    const fetchAndUpdate = (async () => {
+    const fetchAndUpdate = async () => {
       try{
         const fresh = await fetch(req);
-        if (fresh && fresh.ok) c.put(req, fresh.clone());
+        if (fresh && fresh.ok) await c.put(req, fresh.clone());
         return fresh;
       }catch{
         return null;
       }
-    })();
+    };
 
-    // Devuelve cache si existe, y refresca en segundo plano
     if (cached){
-      fetchAndUpdate;
+      // refresh en segundo plano
+      fetchAndUpdate();
       return cached;
     }
 
-    // Si no hay cache, intenta red
-    const fresh = await fetchAndUpdate;
+    const fresh = await fetchAndUpdate();
     if (fresh) return fresh;
 
-    // fallback suave
     return caches.match("./index.html");
   })());
 });
