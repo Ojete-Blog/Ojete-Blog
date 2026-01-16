@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_TAG = "globaleye-trends:final-1.0.0";
+  const APP_TAG = "globaleye-trends:final-1.1.0";
 
   const prev = window.__GLOBAL_EYE_TRENDS__;
   if (prev?.tag === APP_TAG) return;
@@ -16,6 +16,21 @@
 
     gdeltBase: "https://api.gdeltproject.org/api/v2/doc/doc",
     xSearchBase: "https://x.com/search?q=",
+
+    redditBase: "https://www.reddit.com",
+    redditSubs: {
+      mix: ["memes", "dankmemes", "me_irl", "wholesomememes", "funny"],
+      memes: ["memes"],
+      dankmemes: ["dankmemes"],
+      meirl: ["me_irl"],
+      wholesome: ["wholesomememes"],
+      funny: ["funny"]
+    },
+
+    proxies: [
+      "https://api.allorigins.win/raw?url=",
+      "https://api.codetabs.com/v1/proxy?quest="
+    ],
 
     logoPng: "./logo_ojo_png.png",
     logoJpg: "./logo_ojo.jpg",
@@ -61,11 +76,20 @@
   const cfgAlerts = $("cfgAlerts");
   const cfgTicker = $("cfgTicker");
   const cfgTickerSpeed = $("cfgTickerSpeed");
+  const cfgMemeMaxPosts = $("cfgMemeMaxPosts");
+  const cfgNoThumbs = $("cfgNoThumbs");
 
   const inpQ = $("q");
   const selLang = $("selLang");
   const selWindow = $("selWindow");
   const selGeo = $("selGeo");
+
+  const selMemeSource = $("selMemeSource");
+  const selMemeSort = $("selMemeSort");
+  const selMemeRange = $("selMemeRange");
+
+  const trendFilters = $("trendFilters");
+  const memeFilters = $("memeFilters");
 
   const tabsView = $("tabsView");
   const tabsCat = $("tabsCat");
@@ -81,10 +105,15 @@
     settings: null,
     view: "all",
     category: "all",
+
     trends: [],
     filtered: [],
     favs: new Set(),
     ranks: Object.create(null),
+
+    memes: [],
+    memesFiltered: [],
+
     compact: false,
 
     aborter: null,
@@ -117,6 +146,17 @@
       .replaceAll("'", "&#039;");
   }
 
+  function decodeHtmlEntities(s){
+    const str = String(s ?? "");
+    return str
+      .replaceAll("&amp;", "&")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&quot;", "\"")
+      .replaceAll("&#039;", "'")
+      .replaceAll("&#39;", "'");
+  }
+
   function show(el) { if (el) el.classList.remove("hidden"); }
   function hide(el) { if (el) el.classList.add("hidden"); }
 
@@ -132,54 +172,27 @@
     on ? show(elEmpty) : hide(elEmpty);
   }
 
-  function setNet(online) {
+  function setNet(ok){
     if (!elNet) return;
-    elNet.textContent = online ? "Online" : "Offline";
+    elNet.textContent = ok ? "Online" : "Offline";
   }
 
-  function toast(title, msg) {
-    if (!toastHost) return;
-    const el = document.createElement("div");
-    el.className = "toast";
-    el.innerHTML = `
-      <img class="toastImg" src="${CFG.toastGif}" alt="" />
+  function toast(title, msg){
+    if (!toastHost || !state.settings?.alertsEnabled) return;
+    const wrap = document.createElement("div");
+    wrap.className = "toast";
+    wrap.innerHTML = `
+      <img class="toastImg" src="${CFG.toastGif}" alt="">
       <div class="toastRow">
-        <div class="toastTitle">${escapeHtml(title)}</div>
-        <div class="toastMsg">${escapeHtml(msg)}</div>
+        <div class="toastTitle">${escapeHtml(title || "Aviso")}</div>
+        <div class="toastMsg">${escapeHtml(msg || "")}</div>
       </div>
       <button class="toastX" type="button" aria-label="Cerrar">✕</button>
     `;
-    const kill = () => {
-      el.style.transition = "opacity .14s ease, transform .14s ease";
-      el.style.opacity = "0";
-      el.style.transform = "translateY(10px)";
-      setTimeout(() => el.remove(), 170);
-    };
-    el.querySelector(".toastX")?.addEventListener("click", kill, { once:true });
-    toastHost.appendChild(el);
-    requestAnimationFrame(() => {});
-    setTimeout(kill, 3600);
-  }
-
-  async function copyToClipboard(text){
-    try{
-      await navigator.clipboard.writeText(String(text || ""));
-      return true;
-    }catch{
-      try{
-        const ta = document.createElement("textarea");
-        ta.value = String(text || "");
-        ta.style.position = "fixed";
-        ta.style.left = "-9999px";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        ta.remove();
-        return true;
-      }catch{
-        return false;
-      }
-    }
+    const btn = wrap.querySelector(".toastX");
+    btn?.addEventListener("click", () => { try{ wrap.remove(); }catch{} }, { passive:true });
+    toastHost.appendChild(wrap);
+    setTimeout(() => { try{ wrap.remove(); }catch{} }, 5200);
   }
 
   function applyPngLogoIfAvailable(){
@@ -199,16 +212,26 @@
   }
 
   const DEFAULT_SETTINGS = {
+    view: "memes",
+
     lang: "spanish",
     window: "4H",
     geo: "ES",
+
     maxTrends: 35,
     maxArticles: 250,
+
     autoRefresh: true,
     refreshEveryMs: 120_000,
     alertsEnabled: true,
     tickerEnabled: false,
-    tickerSpeedSec: 28
+    tickerSpeedSec: 28,
+
+    memeSource: "mix",
+    memeSort: "new",
+    memeRangeHrs: 48,
+    memeMaxPosts: 45,
+    noThumbs: false
   };
 
   function loadSettings(){
@@ -224,9 +247,16 @@
     state.settings.refreshEveryMs = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
     state.settings.tickerSpeedSec = clamp(Number(state.settings.tickerSpeedSec || 28), 12, 120);
 
+    state.settings.memeMaxPosts = clamp(Number(state.settings.memeMaxPosts || 45), 10, 120);
+    state.settings.memeRangeHrs = clamp(Number(state.settings.memeRangeHrs || 48), 12, 168);
+    state.settings.noThumbs = !!state.settings.noThumbs;
+
     if (!["spanish","english","mixed"].includes(state.settings.lang)) state.settings.lang = "spanish";
     if (!["2H","4H","6H","12H"].includes(String(state.settings.window).toUpperCase())) state.settings.window = "4H";
     if (!["ES","GLOBAL"].includes(String(state.settings.geo).toUpperCase())) state.settings.geo = "ES";
+
+    if (!["mix","memes","dankmemes","meirl","wholesome","funny"].includes(String(state.settings.memeSource))) state.settings.memeSource = "mix";
+    if (!["new","hot","top"].includes(String(state.settings.memeSort))) state.settings.memeSort = "new";
 
     try{
       const favRaw = localStorage.getItem(CFG.LS_FAVS);
@@ -240,9 +270,9 @@
       if (ranksObj && typeof ranksObj === "object") state.ranks = ranksObj;
     }catch{}
 
-    try{
-      state.compact = localStorage.getItem(CFG.LS_COMPACT) === "1";
-    }catch{}
+    try{ state.compact = localStorage.getItem(CFG.LS_COMPACT) === "1"; }catch{}
+
+    state.view = (state.settings.view === "memes") ? "memes" : "all";
   }
 
   function saveSettings(){
@@ -264,6 +294,13 @@
     if (cfgTicker) cfgTicker.checked = !!state.settings.tickerEnabled;
     if (cfgTickerSpeed) cfgTickerSpeed.value = String(state.settings.tickerSpeedSec);
 
+    if (cfgMemeMaxPosts) cfgMemeMaxPosts.value = String(state.settings.memeMaxPosts);
+    if (cfgNoThumbs) cfgNoThumbs.checked = !!state.settings.noThumbs;
+
+    if (selMemeSource) selMemeSource.value = state.settings.memeSource;
+    if (selMemeSort) selMemeSort.value = state.settings.memeSort;
+    if (selMemeRange) selMemeRange.value = String(state.settings.memeRangeHrs);
+
     document.documentElement.style.setProperty("--tickerDur", `${state.settings.tickerSpeedSec}s`);
 
     document.body.classList.toggle("compact", state.compact);
@@ -277,7 +314,13 @@
     const v = String(selWindow?.value || state.settings.window || "4H").toUpperCase();
     return (["2H","4H","6H","12H"].includes(v)) ? v : "4H";
   }
-  function pickTimespanGdelt(){ return pickTimespanUi().toLowerCase(); }
+  function pickTimespanHours(){
+    const v = pickTimespanUi();
+    if (v === "2H") return 2;
+    if (v === "6H") return 6;
+    if (v === "12H") return 12;
+    return 4;
+  }
   function pickLang(){
     const v = String(selLang?.value || state.settings.lang || "spanish").toLowerCase();
     if (v === "mixed") return "mixed";
@@ -287,6 +330,19 @@
   function pickGeo(){
     const v = String(selGeo?.value || state.settings.geo || "ES").toUpperCase();
     return (v === "GLOBAL") ? "GLOBAL" : "ES";
+  }
+
+  function pickMemeSource(){
+    const v = String(selMemeSource?.value || state.settings.memeSource || "mix");
+    return (["mix","memes","dankmemes","meirl","wholesome","funny"].includes(v)) ? v : "mix";
+  }
+  function pickMemeSort(){
+    const v = String(selMemeSort?.value || state.settings.memeSort || "new");
+    return (["new","hot","top"].includes(v)) ? v : "new";
+  }
+  function pickMemeRangeHrs(){
+    const v = Number(selMemeRange?.value || state.settings.memeRangeHrs || 48);
+    return clamp(v, 12, 168);
   }
 
   function openConfig(){ cfgModal?.classList.remove("hidden"); }
@@ -375,248 +431,135 @@
     }, 9000);
   }
 
-  function buildGdeltQuery(){
-    const lang = pickLang();
-    const geo = pickGeo();
+  function setViewMode(v){
+    state.view = v;
+    state.settings.view = v;
+    saveSettings();
 
-    let q;
-    if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
-    else q = `sourcelang:${lang}`;
+    const isMemes = (v === "memes");
+    if (trendFilters) trendFilters.classList.toggle("hidden", isMemes);
+    if (memeFilters) memeFilters.classList.toggle("hidden", !isMemes);
+    if (tabsCat) tabsCat.classList.toggle("hidden", isMemes);
 
-    if (geo === "GLOBAL" && lang === "spanish"){
-      q = `(sourcelang:spanish OR sourcelang:english)`;
-    }
-    return q;
-  }
-
-  function buildGdeltUrl(format, cbName){
-    const params = new URLSearchParams();
-    params.set("format", format);
-    params.set("mode", "artlist");
-    params.set("sort", "hybridrel");
-    params.set("maxrecords", String(clamp(state.settings.maxArticles, 50, 500)));
-    params.set("timespan", pickTimespanGdelt());
-    params.set("query", buildGdeltQuery());
-    if (format === "jsonp") params.set("callback", cbName || "callback");
-    return `${CFG.gdeltBase}?${params.toString()}`;
-  }
-
-  async function fetchWithTimeout(url, ms, signal){
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), ms);
-    const onAbort = () => ctrl.abort();
-    try{
-      if (signal) signal.addEventListener("abort", onAbort, { once:true });
-      return await fetch(url, { signal: ctrl.signal, cache: "no-store" });
-    }finally{
-      clearTimeout(t);
-      if (signal) signal.removeEventListener("abort", onAbort);
-    }
-  }
-
-  function jsonp(url, cbName, timeoutMs){
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      const cleanup = () => {
-        try { delete window[cbName]; } catch {}
-        script.remove();
-      };
-
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error("JSONP timeout"));
-      }, timeoutMs || 12000);
-
-      window[cbName] = (data) => {
-        clearTimeout(timer);
-        cleanup();
-        resolve(data);
-      };
-
-      script.src = url;
-      script.async = true;
-      script.onerror = () => {
-        clearTimeout(timer);
-        cleanup();
-        reject(new Error("JSONP load error"));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  async function getGdeltData(signal){
-    try{
-      const url = buildGdeltUrl("json");
-      const res = await fetchWithTimeout(url, CFG.FETCH_TIMEOUT_MS, signal);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }catch{
-      const cb = `__gdelt_cb_${Date.now()}_${Math.floor(Math.random()*1e6)}`;
-      const url = buildGdeltUrl("jsonp", cb);
-      return await jsonp(url, cb, CFG.FETCH_TIMEOUT_MS);
-    }
-  }
-
-  const STOP_ES = new Set([
-    "el","la","los","las","un","una","unos","unas","y","o","u","de","del","al","a","en","por","para","con","sin",
-    "se","su","sus","lo","le","les","que","como","más","mas","muy","ya","no","sí","si","es","son","fue","han","hay",
-    "este","esta","estos","estas","eso","esa","esos","esas","aquí","alli","allí","ahí",
-    "hoy","ayer","mañana","ante","tras","entre","sobre","contra","durante","desde","hasta","porque","cuando","donde",
-    "uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez"
-  ]);
-  const STOP_EN = new Set([
-    "the","a","an","and","or","to","of","in","on","for","with","without","at","by","from","as","is","are","was","were",
-    "be","been","it","its","this","that","these","those","today","yesterday","tomorrow","new","more","less","very"
-  ]);
-
-  function categoryOf(label){
-    const t = safeLower(label);
-    const sports = ["fc","real madrid","barcelona","uefa","fifa","nba","nfl","mlb","gol","match","liga","champions","tennis","f1","formula 1"];
-    const politics = ["gobierno","congreso","senado","presidente","elecciones","pp","psoe","vox","sanchez","trump","biden","putin","zelensky","ue","unión europea","parlamento","iran","israel","gaza","ucrania","rusia"];
-    const viral = ["meme","tiktok","viral","streamer","influencer","trend","challenge","onlyfans","clip","cringe"];
-    if (sports.some(k => t.includes(k))) return "sports";
-    if (politics.some(k => t.includes(k))) return "politics";
-    if (viral.some(k => t.includes(k))) return "viral";
-    return "news";
-  }
-
-  function normalizeToken(t){
-    return safeLower(t)
-      .replace(/[\u2019']/g, "")
-      .replace(/[^A-Za-z0-9ÁÉÍÓÚÜÑáéíóúüñ#@]+/g, "")
-      .trim();
-  }
-
-  function normalizePhrase(t){
-    return safeLower(t)
-      .replace(/[\u2019']/g, "")
-      .replace(/[^A-Za-z0-9ÁÉÍÓÚÜÑáéíóúüñ\s]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function isStop(tokenOrPhrase){
-    if (!tokenOrPhrase) return true;
-    const s = String(tokenOrPhrase).trim();
-    if (!s) return true;
-
-    const lang = pickLang();
-    const stopSet = (lang === "english") ? STOP_EN : (lang === "spanish") ? STOP_ES : null;
-
-    if (s.includes(" ")){
-      const words = s.split(" ").map(w => w.replace(/^[@#]/,"")).filter(Boolean);
-      if (!words.length) return true;
-
-      const isStopWord = (w) => {
-        if (w.length <= 2) return true;
-        if (stopSet) return stopSet.has(w);
-        return STOP_ES.has(w) || STOP_EN.has(w);
-      };
-
-      return words.every(isStopWord);
-    }
-
-    const t = s.replace(/^[@#]/, "");
-    if (!t || t.length <= 2) return true;
-    if (stopSet) return stopSet.has(t);
-    return STOP_ES.has(t) || STOP_EN.has(t);
+    if (inpQ) inpQ.placeholder = isMemes ? "Buscar memes… (título)" : "Buscar…";
   }
 
   function splitWords(title){
     const raw = String(title || "")
-      .replace(/[\u2013\u2014]/g, " ")
-      .replace(/[(){}\[\]:"“”'’]/g, " ")
-      .replace(/[!?,.;]/g, " ")
+      .replace(/[“”«»]/g, "\"")
+      .replace(/[’]/g, "'")
+      .replace(/[^\p{L}\p{N}_#@'"\s-]/gu, " ")
       .replace(/\s+/g, " ")
       .trim();
 
-    const parts = raw ? raw.split(" ") : [];
-    return parts.map(w => {
-      const clean = w.replace(/^[^#@A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+|[^#@A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+$/g, "");
-      const norm = normalizeToken(clean);
-      const isHash = norm.startsWith("#");
-      const isAt = norm.startsWith("@");
-      const base = norm.replace(/^[@#]/,"");
-      const cap = /^[A-ZÁÉÍÓÚÜÑ]/.test(clean) && !isHash && !isAt;
-      return { raw: clean, norm, base, cap, isHash, isAt };
-    }).filter(x => x.norm);
+    const out = [];
+    if (!raw) return out;
+
+    for (const tok of raw.split(" ")){
+      const t = tok.trim();
+      if (!t) continue;
+
+      const isHash = t.startsWith("#") && t.length >= 2;
+      const isAt = t.startsWith("@") && t.length >= 2;
+
+      const base = (isHash || isAt) ? t.slice(1) : t;
+      const norm = base.toLowerCase();
+
+      const cap = /^[A-ZÁÉÍÓÚÜÑ]/.test(base);
+      const hasNum = /\d/.test(base);
+
+      out.push({
+        raw: t,
+        base,
+        norm,
+        isHash,
+        isAt,
+        cap,
+        hasNum
+      });
+    }
+    return out;
+  }
+
+  const STOP = new Set([
+    "de","la","el","y","a","en","un","una","por","para","con","sin","del","los","las","al",
+    "the","and","or","to","in","of","for","on","at","with","from","by","is","are","was","were",
+    "que","se","su","sus","como","más","menos","muy","ya","no","sí","si","yo","tu","tú","mi","me",
+    "this","that","these","those","it","its","as","an","be","been","being"
+  ]);
+
+  function isStop(w){
+    const s = String(w || "").toLowerCase();
+    return !s || s.length <= 2 || STOP.has(s);
   }
 
   function extractEntityPhrases(words){
-    const connectors = new Set(["de","del","la","las","los","y","da","do","dos","das","van","von","of","the"]);
     const phrases = [];
     let buf = [];
-
     const flush = () => {
       if (buf.length >= 2){
-        const label = buf.join(" ");
-        const key = normalizePhrase(label);
-        if (key && !isStop(key)) phrases.push({ key, label });
+        const label = buf.map(x => x.base).join(" ");
+        const key = label.toLowerCase();
+        phrases.push({ key, label });
       }
       buf = [];
     };
 
-    for (let i=0;i<words.length;i++){
-      const w = words[i];
-
-      if (w.isHash || w.isAt){
-        flush();
-        continue;
-      }
-
-      const lower = safeLower(w.base);
-      const isConn = connectors.has(lower);
-
-      if (w.cap){
-        buf.push(w.raw);
-      } else if (isConn && buf.length){
-        buf.push(w.raw);
-      } else {
+    for (const w of words){
+      if (!w.base || w.isHash || w.isAt) { flush(); continue; }
+      if (w.cap && !w.hasNum && w.base.length >= 3){
+        buf.push(w);
+      }else{
         flush();
       }
     }
     flush();
-
-    const seen = new Set();
-    return phrases.filter(p => (p.key && !seen.has(p.key) && (seen.add(p.key), true)));
+    return phrases;
   }
 
   function extractNgrams(words){
-    const tokens = words
-      .filter(w => !w.isHash && !w.isAt)
-      .map(w => w.base)
-      .filter(Boolean);
+    const grams = [];
+    const usable = words.filter(w => w.base && !w.isHash && !w.isAt && !isStop(w.norm));
+    for (let i=0; i<usable.length; i++){
+      const a = usable[i];
+      const b = usable[i+1];
+      if (!b) continue;
 
-    const out = [];
-    const pushN = (n) => {
-      for (let i=0;i<=tokens.length-n;i++){
-        const slice = tokens.slice(i, i+n);
-        const label = slice.join(" ");
-        const key = normalizePhrase(label);
-        if (!key || isStop(key)) continue;
-        out.push({ key, label });
-      }
-    };
-    pushN(2);
-    pushN(3);
+      const label = `${a.base} ${b.base}`;
+      const key = label.toLowerCase();
+      if (label.length >= 8) grams.push({ key, label });
+    }
+    return grams;
+  }
 
-    const seen = new Set();
-    return out.filter(p => (p.key && !seen.has(p.key) && (seen.add(p.key), true)));
+  function categoryOf(label){
+    const s = safeLower(label);
+
+    const sports = ["fútbol","liga","champions","nba","nfl","mlb","ucl","gol","barça","madrid","real madrid","atleti","tenis","formula","f1","ufc"];
+    const politics = ["gobierno","presidente","elecciones","congreso","parlamento","trump","biden","putin","zelensky","otan","ue","europa","israel","gaza","ucrania","iran","china","vox","psoe","pp"];
+    const news = ["muere","atentado","terremoto","incendio","explosión","accidente","hospital","alerta","última hora","breaking"];
+    const viral = ["meme","viral","tiktok","streamer","youtuber","instagram","onlyfans","trend","challenge"];
+
+    if (sports.some(k => s.includes(k))) return "sports";
+    if (politics.some(k => s.includes(k))) return "politics";
+    if (news.some(k => s.includes(k))) return "news";
+    if (viral.some(k => s.includes(k))) return "viral";
+    return "all";
   }
 
   function computeTrends(articles){
     const scores = new Map();
     const meta = new Map();
 
-    function bump(key, label, add, a){
+    const bump = (key, label, amt, a) => {
       if (!key || isStop(key)) return;
-      scores.set(key, (scores.get(key) || 0) + add);
+      const v = scores.get(key) || 0;
+      scores.set(key, v + amt);
 
-      if (!meta.has(key)){
-        const url = a?.url ? String(a.url) : "";
-        const title = a?.title ? String(a.title) : "";
+      if (!meta.has(key) && a){
+        const url = (a?.url) ? String(a.url) : "";
+        const title = (a?.title) ? String(a.title) : "";
         const img = (a?.socialimage || a?.image || a?.socialimageurl || "") ? String(a.socialimage || a.image || a.socialimageurl) : "";
-
         meta.set(key, {
           label: label || key,
           exampleUrl: url,
@@ -624,7 +567,7 @@
           sampleImage: (img.startsWith("http") ? img : "")
         });
       }
-    }
+    };
 
     for (const a of (articles || [])){
       const title = String(a?.title || "");
@@ -639,8 +582,9 @@
 
       for (const w of words){
         if (!w.base) continue;
-        if (isStop(w.base)) continue;
-        bump(w.base, w.raw, w.cap ? 2.2 : 1.2, a);
+        if (w.isHash || w.isAt) continue;
+        if (isStop(w.norm)) continue;
+        bump(w.norm, w.base, w.cap ? 2.2 : 1.1, a);
       }
 
       for (const p of extractEntityPhrases(words)) bump(p.key, p.label, 4.5, a);
@@ -681,12 +625,126 @@
   function buildXSearchUrl(label){
     let q = String(label || "").trim();
     if (!q) return CFG.profileUrlX;
-
     if (!q.startsWith("#") && !q.startsWith("@") && /\s/.test(q)) q = `"${q}"`;
     return CFG.xSearchBase + encodeURIComponent(q);
   }
 
-  function render(list){
+  function yyyymmddhhmmssUTC(d){
+    const pad = (n) => String(n).padStart(2,"0");
+    return (
+      d.getUTCFullYear() +
+      pad(d.getUTCMonth()+1) +
+      pad(d.getUTCDate()) +
+      pad(d.getUTCHours()) +
+      pad(d.getUTCMinutes()) +
+      pad(d.getUTCSeconds())
+    );
+  }
+
+  function buildGdeltQuery(){
+    const lang = pickLang();
+    const geo = pickGeo();
+
+    let q;
+    if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
+    else q = `sourcelang:${lang}`;
+
+    if (geo === "GLOBAL" && lang === "spanish"){
+      q = `(sourcelang:spanish OR sourcelang:english)`;
+    }
+    return q;
+  }
+
+  function buildGdeltUrl(){
+    const hours = pickTimespanHours();
+    const end = new Date();
+    const start = new Date(Date.now() - hours * 3600_000);
+
+    const params = new URLSearchParams();
+    params.set("format", "json");
+    params.set("mode", "artlist");
+    params.set("sort", "hybridrel");
+    params.set("maxrecords", String(clamp(state.settings.maxArticles, 50, 500)));
+    params.set("query", buildGdeltQuery());
+    params.set("startdatetime", yyyymmddhhmmssUTC(start));
+    params.set("enddatetime", yyyymmddhhmmssUTC(end));
+    return `${CFG.gdeltBase}?${params.toString()}`;
+  }
+
+  async function fetchWithTimeout(url, { timeoutMs, signal } = {}){
+    const ac = new AbortController();
+    const t = setTimeout(() => { try{ ac.abort(); }catch{} }, clamp(Number(timeoutMs || CFG.FETCH_TIMEOUT_MS), 2000, 45000));
+    const anySigAbort = () => { try{ ac.abort(); }catch{} };
+
+    if (signal) {
+      if (signal.aborted) anySigAbort();
+      else signal.addEventListener("abort", anySigAbort, { once:true });
+    }
+
+    try{
+      const res = await fetch(url, { signal: ac.signal, cache: "no-store" });
+      return res;
+    } finally {
+      clearTimeout(t);
+      if (signal) { try{ signal.removeEventListener("abort", anySigAbort); }catch{} }
+    }
+  }
+
+  async function fetchJsonSmart(url, signal){
+    const tries = [url, ...CFG.proxies.map(p => p + encodeURIComponent(url))];
+    let lastErr = null;
+
+    for (const u of tries){
+      try{
+        const res = await fetchWithTimeout(u, { timeoutMs: CFG.FETCH_TIMEOUT_MS, signal });
+        if (!res?.ok) throw new Error(`HTTP ${res?.status || 0}`);
+        const txt = await res.text();
+        return JSON.parse(txt);
+      }catch(e){
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("fetchJsonSmart failed");
+  }
+
+  function applyFilter(){
+    const q = safeLower(inpQ?.value || "");
+
+    if (state.view === "memes"){
+      let list = Array.isArray(state.memes) ? state.memes.slice() : [];
+
+      if (q) list = list.filter(m => safeLower(m.title).includes(q));
+
+      state.memesFiltered = list;
+      renderMemes(state.memesFiltered);
+      setEmpty(state.memesFiltered.length === 0);
+      setErr("");
+      buildTickerFromCurrent();
+      return;
+    }
+
+    let list = Array.isArray(state.trends) ? state.trends.slice() : [];
+
+    if (q){
+      list = list.filter(it => safeLower(it.label).includes(q));
+    }
+
+    if (state.view === "favs"){
+      list = list.filter(it => state.favs.has(it.key));
+    }
+
+    if (state.category && state.category !== "all"){
+      list = list.filter(it => it.cat === state.category);
+    }
+
+    state.filtered = list;
+    renderTrends(state.filtered);
+    setEmpty(state.filtered.length === 0);
+    setErr("");
+    buildTickerFromCurrent();
+  }
+
+  function renderTrends(list){
     if (!elList) return;
 
     elList.innerHTML = "";
@@ -704,126 +762,186 @@
         return `<span class="badge bad" title="Baja en ranking">▼ ${Math.abs(it.delta)}</span>`;
       })();
 
-      const badgeCat = (() => {
-        if (state.category !== "all") return "";
-        if (it.cat === "sports") return `<span class="badge warn">Deportes</span>`;
-        if (it.cat === "politics") return `<span class="badge bad">Política</span>`;
-        if (it.cat === "viral") return `<span class="badge good">Viral</span>`;
-        return `<span class="badge">Noticias</span>`;
-      })();
+      const badgeCat = (it.cat && it.cat !== "all")
+        ? `<span class="badge cat">${escapeHtml(it.cat.toUpperCase())}</span>` : "";
 
-      const favOn = state.favs.has(it.key);
-      const favCls = favOn ? "aBtn star on" : "aBtn star";
+      const titleUrl = buildXSearchUrl(it.label);
 
-      const sampleBlock = (() => {
-        const title = it.sampleTitle ? escapeHtml(it.sampleTitle) : "";
-        const url = it.exampleUrl ? String(it.exampleUrl) : "";
-        const img = it.sampleImage ? String(it.sampleImage) : "";
+      const thumb = (!state.settings.noThumbs && it.sampleImage)
+        ? `<img class="tThumb" src="${escapeHtml(it.sampleImage)}" alt="">`
+        : "";
 
-        if (!url && !img && !title) return "";
-
-        const imgHtml = img
-          ? `<img class="tThumb" src="${escapeHtml(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';" />`
-          : "";
-
-        const linkText = title || "Abrir fuente";
-        const linkHref = url || (img || "#");
-
-        return `<div class="tMedia">${imgHtml}<a class="tLink" href="${escapeHtml(linkHref)}" target="_blank" rel="noreferrer">${escapeHtml(linkText)}</a></div>`;
-      })();
+      const sampleLink = it.exampleUrl
+        ? `<a class="tLink" href="${escapeHtml(it.exampleUrl)}" target="_blank" rel="noreferrer">${escapeHtml(it.sampleTitle || it.exampleUrl)}</a>`
+        : "";
 
       row.innerHTML = `
-        <div class="rank">${it.rank}</div>
-
-        <div class="tBody">
-          <div class="tTop">
-            <div class="tLabel" title="${escapeHtml(it.label)}">${escapeHtml(it.label)}</div>
-            ${badgeDelta}
-            ${badgeCat}
-          </div>
-
-          <div class="tMeta">
-            <div>Score: <b>${Math.round(it.score)}</b></div>
-            ${sampleBlock}
+        <div class="tLeft">
+          <div class="tRank">${it.rank}</div>
+          <div class="tMain">
+            <div class="tTop">
+              <a class="tTitle" href="${escapeHtml(titleUrl)}" target="_blank" rel="noreferrer">${escapeHtml(it.label)}</a>
+              ${badgeDelta}
+              ${badgeCat}
+            </div>
+            <div class="tMeta">Score: ${Math.round(it.score)}</div>
+            <div class="tMedia">
+              ${thumb}
+              ${sampleLink}
+            </div>
           </div>
         </div>
-
         <div class="actions">
-          <button class="${favCls}" type="button" title="Favorito" aria-label="Favorito">★</button>
-          <a class="aBtn" href="${escapeHtml(buildXSearchUrl(it.label))}" target="_blank" rel="noreferrer" title="Buscar en X" aria-label="Buscar en X">X</a>
-          <button class="aBtn" type="button" title="Copiar" aria-label="Copiar">⎘</button>
+          <button class="aBtn star ${state.favs.has(it.key) ? "on" : ""}" type="button" title="Favorito" aria-label="Favorito">★</button>
+          <a class="aBtn" href="${escapeHtml(titleUrl)}" target="_blank" rel="noreferrer" title="Buscar en X">X</a>
+          ${it.exampleUrl ? `<a class="aBtn" href="${escapeHtml(it.exampleUrl)}" target="_blank" rel="noreferrer" title="Abrir noticia">↗</a>` : ""}
         </div>
       `;
 
-      const btnStar = row.querySelector(".aBtn.star");
-      const btnCopy = row.querySelectorAll(".aBtn")[2];
-
-      btnStar?.addEventListener("click", () => {
+      const star = row.querySelector(".aBtn.star");
+      star?.addEventListener("click", () => {
         if (state.favs.has(it.key)) state.favs.delete(it.key);
         else state.favs.add(it.key);
         saveSettings();
         applyFilter();
       });
 
-      btnCopy?.addEventListener("click", async () => {
-        const ok = await copyToClipboard(it.label);
-        if (ok && state.settings.alertsEnabled) toast("Copiado", it.label);
-      });
-
       elList.appendChild(row);
     }
   }
 
-  function updateTicker(list){
+  function fmtAgo(tsMs){
+    const ms = Date.now() - tsMs;
+    const m = Math.max(1, Math.floor(ms / 60000));
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    const d = Math.floor(h / 24);
+    return `${d}d`;
+  }
+
+  function pickRedditMedia(p){
+    const isOver18 = !!p?.over_18;
+    if (isOver18) return null;
+
+    const url = String(p?.url_overridden_by_dest || p?.url || "");
+
+    if (p?.is_video && p?.media?.reddit_video?.fallback_url){
+      return { type: "video", url: String(p.media.reddit_video.fallback_url) };
+    }
+
+    if (p?.secure_media?.reddit_video?.fallback_url){
+      return { type: "video", url: String(p.secure_media.reddit_video.fallback_url) };
+    }
+
+    if (p?.preview?.images?.[0]?.source?.url){
+      return { type: "image", url: decodeHtmlEntities(String(p.preview.images[0].source.url)) };
+    }
+
+    if (p?.is_gallery && p?.gallery_data?.items?.length && p?.media_metadata){
+      const first = p.gallery_data.items[0];
+      const id = first?.media_id;
+      const mm = id ? p.media_metadata[id] : null;
+      const u = mm?.s?.u || mm?.p?.[mm.p.length-1]?.u;
+      if (u) return { type: "image", url: decodeHtmlEntities(String(u)) };
+    }
+
+    if (url){
+      const low = url.toLowerCase();
+      if (low.endsWith(".jpg") || low.endsWith(".jpeg") || low.endsWith(".png") || low.endsWith(".gif") || low.endsWith(".webp")){
+        return { type: "image", url };
+      }
+      if (low.includes("i.redd.it") || low.includes("i.imgur.com")) return { type: "image", url };
+    }
+
+    return null;
+  }
+
+  function renderMemes(list){
+    if (!elList) return;
+
+    elList.innerHTML = "";
+
+    const maxP = clamp(Number(state.settings.memeMaxPosts || 45), 10, 120);
+    const slice = (list || []).slice(0, maxP);
+
+    for (const m of slice){
+      const card = document.createElement("div");
+      card.className = "memeCard";
+
+      const mediaHtml = (() => {
+        if (!m.media) return "";
+        if (m.media.type === "video"){
+          return `<div class="memeMedia"><video controls playsinline preload="metadata" src="${escapeHtml(m.media.url)}"></video></div>`;
+        }
+        return `<div class="memeMedia"><img loading="lazy" decoding="async" src="${escapeHtml(m.media.url)}" alt=""></div>`;
+      })();
+
+      card.innerHTML = `
+        <div class="memeHead">
+          <div class="memeMeta">
+            <div class="memeSub">r/${escapeHtml(m.subreddit)}</div>
+            <div class="memeBy">u/${escapeHtml(m.author)} · ${escapeHtml(fmtAgo(m.createdMs))}</div>
+          </div>
+          <span class="tagPill">🔥 ${escapeHtml(String(m.score || 0))}</span>
+        </div>
+        <div class="memeTitle">${escapeHtml(m.title)}</div>
+        ${mediaHtml}
+        <div class="memeFoot">
+          <div class="memeStats">
+            <span class="tagPill">💬 ${escapeHtml(String(m.comments || 0))}</span>
+            <span class="tagPill">🕒 ${escapeHtml(new Date(m.createdMs).toLocaleString())}</span>
+          </div>
+          <div class="memeBtns">
+            <a class="aBtn" href="${escapeHtml(m.permalink)}" target="_blank" rel="noreferrer">Abrir</a>
+          </div>
+        </div>
+      `;
+
+      elList.appendChild(card);
+    }
+  }
+
+  function buildTickerFromCurrent(){
     if (!tickerTrack) return;
 
-    const items = (list || []).slice(0, clamp(state.settings.maxTrends || 35, 10, 80));
+    const items = [];
+    if (state.view === "memes"){
+      for (const m of (state.memesFiltered || []).slice(0, 18)){
+        items.push({ label: m.title, url: m.permalink });
+      }
+    }else{
+      for (const it of (state.filtered || []).slice(0, 18)){
+        items.push({ label: it.label, url: buildXSearchUrl(it.label) });
+      }
+    }
+
     if (!items.length){
       tickerTrack.innerHTML = "";
       return;
     }
 
-    const make = (arr) => arr.map(it => {
-      const href = buildXSearchUrl(it.label);
-      return `
-        <a class="tickerItem" href="${escapeHtml(href)}" target="_blank" rel="noreferrer" title="${escapeHtml(it.label)}">
-          <span class="tickerDot"></span>
-          <span>${escapeHtml(it.label)}</span>
-        </a>`;
-    }).join("");
-
-    tickerTrack.innerHTML = make(items) + make(items);
+    const doubled = items.concat(items);
+    tickerTrack.innerHTML = doubled.map(x => `
+      <a class="tickerItem" href="${escapeHtml(x.url)}" target="_blank" rel="noreferrer">
+        <span class="tickerDot"></span>${escapeHtml(x.label)}
+      </a>
+    `).join("");
   }
 
-  function applyFilter(){
-    const q = safeLower(inpQ?.value || "").trim();
-
-    let arr = state.trends.slice();
-
-    if (state.view === "favs") arr = arr.filter(x => state.favs.has(x.key));
-    if (state.category !== "all") arr = arr.filter(x => x.cat === state.category);
-    if (q) arr = arr.filter(x => safeLower(x.label).includes(q) || safeLower(x.key).includes(q));
-
-    arr = arr.map((x, i) => ({ ...x, rank: i + 1 }));
-
-    state.filtered = arr;
-
-    setEmpty(arr.length === 0);
-    render(arr);
-    updateTicker(arr);
-  }
-
-  async function refresh(){
+  async function refreshTrends(){
     setErr("");
     setEmpty(false);
-    if (elLast) elLast.textContent = "Cargando…";
 
-    try { state.aborter?.abort?.(); } catch {}
+    try{
+      state.aborter?.abort?.();
+    }catch{}
     state.aborter = new AbortController();
 
     try{
-      const data = await getGdeltData(state.aborter.signal);
-      const articles = Array.isArray(data?.articles) ? data.articles : [];
+      const url = buildGdeltUrl();
+      const data = await fetchJsonSmart(url, state.aborter.signal);
+      const articles = (data && Array.isArray(data.articles)) ? data.articles : [];
 
       state.trends = computeTrends(articles);
       saveSettings();
@@ -836,15 +954,93 @@
     }
   }
 
+  async function refreshMemes(){
+    setErr("");
+    setEmpty(false);
+
+    try{
+      state.aborter?.abort?.();
+    }catch{}
+    state.aborter = new AbortController();
+
+    try{
+      const source = pickMemeSource();
+      const sort = pickMemeSort();
+      const rangeHrs = pickMemeRangeHrs();
+      const subs = CFG.redditSubs[source] || CFG.redditSubs.mix;
+
+      const cutoff = Date.now() - rangeHrs * 3600_000;
+
+      const all = [];
+      for (const sub of subs){
+        const path = (sort === "hot") ? "hot" : (sort === "top" ? "top" : "new");
+        const params = new URLSearchParams();
+        params.set("limit", "80");
+        params.set("raw_json", "1");
+        if (sort === "top") params.set("t", rangeHrs <= 24 ? "day" : "week");
+
+        const url = `${CFG.redditBase}/r/${sub}/${path}.json?${params.toString()}`;
+        const json = await fetchJsonSmart(url, state.aborter.signal);
+        const children = json?.data?.children || [];
+
+        for (const ch of children){
+          const p = ch?.data;
+          if (!p) continue;
+          if (p.over_18) continue;
+
+          const createdMs = Math.floor(Number(p.created_utc || 0) * 1000);
+          if (!createdMs || createdMs < cutoff) continue;
+
+          const media = pickRedditMedia(p);
+          if (!media) continue;
+
+          all.push({
+            id: String(p.id || ""),
+            title: String(p.title || ""),
+            subreddit: String(p.subreddit || sub),
+            author: String(p.author || ""),
+            score: Number(p.score || 0),
+            comments: Number(p.num_comments || 0),
+            createdMs,
+            permalink: `${CFG.redditBase}${String(p.permalink || "")}`,
+            media
+          });
+        }
+      }
+
+      const map = new Map();
+      for (const m of all){
+        if (!m.id) continue;
+        if (!map.has(m.id)) map.set(m.id, m);
+      }
+
+      const merged = [...map.values()];
+      merged.sort((a,b) => b.createdMs - a.createdMs);
+
+      state.memes = merged;
+      if (elLast) elLast.textContent = nowISO();
+
+      applyFilter();
+    }catch{
+      setErr("No se pudo cargar memes (CORS/proxy). Prueba otra fuente o recarga.");
+      if (elLast) elLast.textContent = nowISO();
+    }
+  }
+
   function schedule(){
     try { if (state.refreshTimer) clearTimeout(state.refreshTimer); } catch {}
     if (!state.settings.autoRefresh) return;
 
     const ms = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
     state.refreshTimer = setTimeout(async () => {
-      await refresh();
+      await refreshCurrent();
       schedule();
     }, ms);
+  }
+
+  async function refreshCurrent(){
+    if (state.view === "memes") return refreshMemes();
+    return refreshTrends();
   }
 
   async function swSkipWaiting(reg){
@@ -890,22 +1086,45 @@
   }
 
   function bindUI(){
-    on(btnRefresh, "click", async () => { await refresh(); schedule(); });
+    on(btnRefresh, "click", async () => { await refreshCurrent(); schedule(); });
     on(btnCompact, "click", () => { toggleCompact(); });
 
     on(inpQ, "input", () => applyFilter());
 
-    on(selLang, "change", async () => { state.settings.lang = pickLang(); saveSettings(); await refresh(); schedule(); });
-    on(selWindow, "change", async () => { state.settings.window = pickTimespanUi(); saveSettings(); await refresh(); schedule(); });
-    on(selGeo, "change", async () => { state.settings.geo = pickGeo(); saveSettings(); await refresh(); schedule(); });
+    on(selLang, "change", async () => { state.settings.lang = pickLang(); saveSettings(); if (state.view !== "memes") await refreshTrends(); schedule(); });
+    on(selWindow, "change", async () => { state.settings.window = pickTimespanUi(); saveSettings(); if (state.view !== "memes") await refreshTrends(); schedule(); });
+    on(selGeo, "change", async () => { state.settings.geo = pickGeo(); saveSettings(); if (state.view !== "memes") await refreshTrends(); schedule(); });
 
-    on(tabsView, "click", (e) => {
+    on(selMemeSource, "change", async () => { state.settings.memeSource = pickMemeSource(); saveSettings(); if (state.view === "memes") await refreshMemes(); schedule(); });
+    on(selMemeSort, "change", async () => { state.settings.memeSort = pickMemeSort(); saveSettings(); if (state.view === "memes") await refreshMemes(); schedule(); });
+    on(selMemeRange, "change", async () => { state.settings.memeRangeHrs = pickMemeRangeHrs(); saveSettings(); if (state.view === "memes") await refreshMemes(); schedule(); });
+
+    on(tabsView, "click", async (e) => {
       const btn = e.target?.closest?.(".tab");
       if (!btn) return;
+
       const view = btn.getAttribute("data-view") || "all";
-      state.view = (view === "favs") ? "favs" : "all";
-      setActiveTab(tabsView, "data-view", state.view);
+      const next =
+        (view === "memes") ? "memes" :
+        (view === "favs") ? "favs" : "all";
+
+      setViewMode(next);
+      setActiveTab(tabsView, "data-view", next);
+
+      if (next !== "memes"){
+        if (tabsCat) show(tabsCat);
+      }
+
       applyFilter();
+
+      if (next === "memes" && (!state.memes || state.memes.length === 0)){
+        await refreshMemes();
+        schedule();
+      }
+      if (next !== "memes" && (!state.trends || state.trends.length === 0)){
+        await refreshTrends();
+        schedule();
+      }
     });
 
     on(tabsCat, "click", (e) => {
@@ -921,6 +1140,7 @@
       btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
       setTickerVisible(state.settings.tickerEnabled);
       saveSettings();
+      buildTickerFromCurrent();
     });
 
     on(tickerClose, "click", () => {
@@ -938,6 +1158,7 @@
       const everySec = clamp(Number(cfgEvery?.value || 120), 35, 900);
       const maxT = clamp(Number(cfgMaxTrends?.value || 35), 10, 80);
       const tSpd = clamp(Number(cfgTickerSpeed?.value || 28), 12, 120);
+      const memeMax = clamp(Number(cfgMemeMaxPosts?.value || 45), 10, 120);
 
       state.settings.autoRefresh = !!cfgAuto?.checked;
       state.settings.refreshEveryMs = everySec * 1000;
@@ -946,13 +1167,16 @@
       state.settings.tickerEnabled = !!cfgTicker?.checked;
       state.settings.tickerSpeedSec = tSpd;
 
+      state.settings.memeMaxPosts = memeMax;
+      state.settings.noThumbs = !!cfgNoThumbs?.checked;
+
       document.documentElement.style.setProperty("--tickerDur", `${state.settings.tickerSpeedSec}s`);
       setTickerVisible(state.settings.tickerEnabled);
       btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
 
       saveSettings();
       closeConfig();
-      await refresh();
+      await refreshCurrent();
       schedule();
     });
 
@@ -968,6 +1192,7 @@
 
     setNet(navigator.onLine);
 
+    setViewMode(state.view);
     setActiveTab(tabsView, "data-view", state.view);
     setActiveTab(tabsCat, "data-cat", state.category);
 
@@ -976,7 +1201,11 @@
     mountTimeline();
     initAutoUpdateSW();
 
-    await refresh();
+    buildTickerFromCurrent();
+
+    await refreshCurrent();
     schedule();
+
+    if (state.view === "memes") toast("MEMES", "Cargando memes de las últimas 48h…");
   })();
 })();

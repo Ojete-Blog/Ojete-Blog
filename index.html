@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark light" />
   <meta name="theme-color" content="#070A12" />
-  <meta name="description" content="GlobalEye Trends — Feed embebido de X (sin API) con media + tendencias actuales (open data)." />
+  <meta name="description" content="GlobalEye Trends — Feed embebido de X (sin API) con media + tendencias actuales (open data) + memes tipo Reddit." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <meta name="robots" content="index,follow" />
 
@@ -25,20 +25,20 @@
 
 <body>
   <noscript>
-    <div class="noscript"></div>
+    <div class="noscript">Activa JavaScript para ver el feed.</div>
   </noscript>
 
-  <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker de tendencias">
+  <div id="tickerBar" class="ticker hidden" role="region" aria-label="Ticker">
     <div class="tickerInner">
       <img class="tickerLogo" src="./logo_ojo_png.png" alt="" />
       <div class="tickerViewport">
-        <div id="tickerTrack" class="tickerTrack" aria-label="Tendencias en ticker"></div>
+        <div id="tickerTrack" class="tickerTrack" aria-label="Ticker"></div>
       </div>
       <button id="tickerClose" class="iconBtn" type="button" aria-label="Cerrar ticker">✕</button>
     </div>
   </div>
 
-  <header class="topbar" aria-label="GlobalEye Trends">
+  <header class="topbar" aria-label="GlobalEye">
     <div class="topBg" aria-hidden="true">
       <img class="topBgImg" src="./banner_ojo.jpg" alt="" loading="eager" decoding="async" fetchpriority="high" />
       <div class="topBgShade"></div>
@@ -55,6 +55,8 @@
 
       <div class="topActions">
         <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Abrir en X</a>
+        <button id="btnRefresh" class="btn ghost" type="button">Actualizar</button>
+        <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">Compacto</button>
         <button id="btnTicker" class="btn ghost" type="button" aria-pressed="false">Ticker</button>
         <button id="btnConfig" class="btn" type="button">Config</button>
       </div>
@@ -69,19 +71,17 @@
   <main class="app">
     <aside class="left">
       <div class="card">
-        <div class="cardTitle">Acciones</div>
-        <div class="btnRow">
-          <button id="btnRefresh" class="btn" type="button">Actualizar</button>
-          <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">Compacto</button>
-        </div>
+        <div class="cardTitle">Modo</div>
         <div class="hint">
+          Usa la pestaña <b>MEMES</b> para ver tarjetas tipo Reddit con memes de las últimas <b>48h</b>.
         </div>
       </div>
 
       <div class="card">
-        <div class="cardTitle">Fuente</div>
-        <div class="hint">
-          Tendencias calculadas desde titulares recientes vía <b>GDELT</b> (open data). Si tu navegador bloquea el widget, verás fallback.
+        <div class="cardTitle">Atajos</div>
+        <div class="btnRow">
+          <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Perfil X</a>
+          <a class="btn ghost" href="https://www.reddit.com/r/memes/new/" target="_blank" rel="noreferrer">Reddit /memes</a>
         </div>
       </div>
 
@@ -96,32 +96,58 @@
         <div class="panelHead">
           <div class="searchWrap">
             <span class="searchIco" aria-hidden="true">🔎</span>
-            <input id="q" class="search" type="search" placeholder="Filtrar tendencias… (ej: trump, barcelona, #bitcoin)" autocomplete="off" />
+            <input id="q" class="search" type="search" placeholder="Buscar…" autocomplete="off" />
           </div>
 
           <div class="filters">
-            <select id="selLang" class="select" title="Idioma (GDELT)">
-              <option value="spanish">ES</option>
-              <option value="mixed">Mixto</option>
-              <option value="english">EN</option>
-            </select>
+            <div id="trendFilters" class="filtersGroup">
+              <select id="selLang" class="select" title="Idioma (GDELT)">
+                <option value="spanish">ES</option>
+                <option value="mixed">Mixto</option>
+                <option value="english">EN</option>
+              </select>
 
-            <select id="selWindow" class="select" title="Ventana de tiempo">
-              <option value="2H">2H</option>
-              <option value="4H" selected>4H</option>
-              <option value="6H">6H</option>
-              <option value="12H">12H</option>
-            </select>
+              <select id="selWindow" class="select" title="Ventana de tiempo">
+                <option value="2H">2H</option>
+                <option value="4H" selected>4H</option>
+                <option value="6H">6H</option>
+                <option value="12H">12H</option>
+              </select>
 
-            <select id="selGeo" class="select" title="Ámbito">
-              <option value="ES" selected>ES</option>
-              <option value="GLOBAL">GLOBAL</option>
-            </select>
+              <select id="selGeo" class="select" title="Ámbito">
+                <option value="ES" selected>ES</option>
+                <option value="GLOBAL">GLOBAL</option>
+              </select>
+            </div>
+
+            <div id="memeFilters" class="filtersGroup hidden">
+              <select id="selMemeSource" class="select" title="Fuente memes">
+                <option value="mix" selected>Mix</option>
+                <option value="memes">r/memes</option>
+                <option value="dankmemes">r/dankmemes</option>
+                <option value="meirl">r/me_irl</option>
+                <option value="wholesome">r/wholesomememes</option>
+                <option value="funny">r/funny</option>
+              </select>
+
+              <select id="selMemeSort" class="select" title="Orden memes">
+                <option value="new" selected>New</option>
+                <option value="hot">Hot</option>
+                <option value="top">Top</option>
+              </select>
+
+              <select id="selMemeRange" class="select" title="Rango memes">
+                <option value="24">24h</option>
+                <option value="48" selected>48h</option>
+                <option value="72">72h</option>
+              </select>
+            </div>
           </div>
         </div>
 
         <div class="panelTabs">
           <div id="tabsView" class="tabs" role="tablist" aria-label="Vista">
+            <button class="tab" type="button" data-view="memes" aria-selected="false">MEMES</button>
             <button class="tab isActive" type="button" data-view="all" aria-selected="true">Tendencias</button>
             <button class="tab" type="button" data-view="favs" aria-selected="false">Favoritos</button>
           </div>
@@ -139,8 +165,7 @@
         <div id="empty" class="empty hidden">No hay resultados con estos filtros.</div>
         <div id="list" class="trendList" aria-live="polite"></div>
 
-        <div class="panelFoot">
-        </div>
+        <div class="panelFoot"></div>
       </div>
     </section>
 
@@ -183,18 +208,30 @@
         </label>
 
         <label class="row">
-          <span>Alertas suaves</span>
+          <span>Alertas</span>
           <input id="cfgAlerts" type="checkbox" checked />
         </label>
 
         <label class="row">
-          <span>Activar ticker</span>
+          <span>Ticker</span>
           <input id="cfgTicker" type="checkbox" />
         </label>
 
         <label class="row">
           <span>Velocidad ticker (seg)</span>
           <input id="cfgTickerSpeed" class="input" type="number" min="12" max="120" value="28" />
+        </label>
+
+        <div class="divider"></div>
+
+        <label class="row">
+          <span>Máx memes</span>
+          <input id="cfgMemeMaxPosts" class="input" type="number" min="10" max="120" value="45" />
+        </label>
+
+        <label class="row">
+          <span>Ocultar thumbnails</span>
+          <input id="cfgNoThumbs" type="checkbox" />
         </label>
       </div>
 
