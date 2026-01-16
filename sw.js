@@ -1,6 +1,7 @@
+/* sw.js */
 "use strict";
 
-const SW_VERSION = "ge-trends-sw-final-1";
+const SW_VERSION = "ge-trends-sw-final-2";
 const CACHE_CORE = `${SW_VERSION}::core`;
 const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
 
@@ -67,7 +68,6 @@ self.addEventListener("fetch", (event) => {
   if (!req || req.method !== "GET") return;
 
   const url = new URL(req.url);
-
   if (url.origin !== self.location.origin) return;
 
   const isHtml = req.headers.get("accept")?.includes("text/html");

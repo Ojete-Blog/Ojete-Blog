@@ -1,7 +1,8 @@
+/* app.js */
 (() => {
   "use strict";
 
-  const APP_TAG = "globaleye-trends:final-1.1.0";
+  const APP_TAG = "globaleye-trends:final-1.2.0";
 
   const prev = window.__GLOBAL_EYE_TRENDS__;
   if (prev?.tag === APP_TAG) return;
@@ -103,7 +104,7 @@
 
   const state = {
     settings: null,
-    view: "all",
+    view: "memes",
     category: "all",
 
     trends: [],
@@ -135,6 +136,11 @@
     if (!target?.addEventListener) return;
     target.addEventListener(type, handler, opts);
     state._cleanups.push(() => target.removeEventListener(type, handler, opts));
+  }
+
+  function icon(name, cls=""){
+    const c = cls ? `ms ${cls}` : "ms";
+    return `<span class="${c}" aria-hidden="true">${name}</span>`;
   }
 
   function escapeHtml(s) {
@@ -172,931 +178,776 @@
     on ? show(elEmpty) : hide(elEmpty);
   }
 
-  function setNet(ok){
+  function setNet(online) {
     if (!elNet) return;
-    elNet.textContent = ok ? "Online" : "Offline";
+    elNet.textContent = online ? "Online" : "Offline";
   }
 
-  function toast(title, msg){
-    if (!toastHost || !state.settings?.alertsEnabled) return;
-    const wrap = document.createElement("div");
-    wrap.className = "toast";
-    wrap.innerHTML = `
-      <img class="toastImg" src="${CFG.toastGif}" alt="">
+  function toast(title, msg) {
+    if (!toastHost) return;
+    if (!state.settings?.alertsEnabled) return;
+
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `
+      <img class="toastImg" src="${CFG.toastGif}" alt="" />
       <div class="toastRow">
-        <div class="toastTitle">${escapeHtml(title || "Aviso")}</div>
-        <div class="toastMsg">${escapeHtml(msg || "")}</div>
+        <div class="toastTitle">${escapeHtml(title)}</div>
+        <div class="toastMsg">${escapeHtml(msg)}</div>
       </div>
-      <button class="toastX" type="button" aria-label="Cerrar">✕</button>
+      <button class="toastX" type="button" aria-label="Cerrar">${icon("close")}</button>
     `;
-    const btn = wrap.querySelector(".toastX");
-    btn?.addEventListener("click", () => { try{ wrap.remove(); }catch{} }, { passive:true });
-    toastHost.appendChild(wrap);
-    setTimeout(() => { try{ wrap.remove(); }catch{} }, 5200);
+
+    const kill = () => {
+      el.style.transition = "opacity .14s ease, transform .14s ease";
+      el.style.opacity = "0";
+      el.style.transform = "translateY(10px)";
+      setTimeout(() => el.remove(), 170);
+    };
+
+    el.querySelector(".toastX")?.addEventListener("click", kill, { once:true });
+    toastHost.appendChild(el);
+    setTimeout(kill, 3600);
   }
 
-  function applyPngLogoIfAvailable(){
-    const png = CFG.logoPng;
-    const jpg = CFG.logoJpg;
-    const img = new Image();
-    img.onload = () => {
-      document.querySelectorAll("img.brandLogo, img.tickerLogo").forEach(el => {
-        el.src = png;
-        try{ el.style.objectFit = "cover"; }catch{}
-      });
-    };
-    img.onerror = () => {
-      document.querySelectorAll("img.brandLogo, img.tickerLogo").forEach(el => { el.src = jpg; });
-    };
-    img.src = png;
-  }
-
-  const DEFAULT_SETTINGS = {
-    view: "memes",
-
-    lang: "spanish",
-    window: "4H",
-    geo: "ES",
-
-    maxTrends: 35,
-    maxArticles: 250,
-
-    autoRefresh: true,
-    refreshEveryMs: 120_000,
-    alertsEnabled: true,
-    tickerEnabled: false,
-    tickerSpeedSec: 28,
-
-    memeSource: "mix",
-    memeSort: "new",
-    memeRangeHrs: 48,
-    memeMaxPosts: 45,
-    noThumbs: false
-  };
-
-  function loadSettings(){
-    let s = null;
+  async function copyToClipboard(text){
     try{
-      const raw = localStorage.getItem(CFG.LS_SETTINGS);
-      if (raw) s = JSON.parse(raw);
-    }catch{}
-    state.settings = { ...DEFAULT_SETTINGS, ...(s || {}) };
-
-    state.settings.maxTrends = clamp(Number(state.settings.maxTrends || 35), 10, 80);
-    state.settings.maxArticles = clamp(Number(state.settings.maxArticles || 250), 50, 500);
-    state.settings.refreshEveryMs = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
-    state.settings.tickerSpeedSec = clamp(Number(state.settings.tickerSpeedSec || 28), 12, 120);
-
-    state.settings.memeMaxPosts = clamp(Number(state.settings.memeMaxPosts || 45), 10, 120);
-    state.settings.memeRangeHrs = clamp(Number(state.settings.memeRangeHrs || 48), 12, 168);
-    state.settings.noThumbs = !!state.settings.noThumbs;
-
-    if (!["spanish","english","mixed"].includes(state.settings.lang)) state.settings.lang = "spanish";
-    if (!["2H","4H","6H","12H"].includes(String(state.settings.window).toUpperCase())) state.settings.window = "4H";
-    if (!["ES","GLOBAL"].includes(String(state.settings.geo).toUpperCase())) state.settings.geo = "ES";
-
-    if (!["mix","memes","dankmemes","meirl","wholesome","funny"].includes(String(state.settings.memeSource))) state.settings.memeSource = "mix";
-    if (!["new","hot","top"].includes(String(state.settings.memeSort))) state.settings.memeSort = "new";
-
-    try{
-      const favRaw = localStorage.getItem(CFG.LS_FAVS);
-      const favArr = favRaw ? JSON.parse(favRaw) : null;
-      if (Array.isArray(favArr)) state.favs = new Set(favArr.map(String));
-    }catch{}
-
-    try{
-      const ranksRaw = localStorage.getItem(CFG.LS_RANKS);
-      const ranksObj = ranksRaw ? JSON.parse(ranksRaw) : null;
-      if (ranksObj && typeof ranksObj === "object") state.ranks = ranksObj;
-    }catch{}
-
-    try{ state.compact = localStorage.getItem(CFG.LS_COMPACT) === "1"; }catch{}
-
-    state.view = (state.settings.view === "memes") ? "memes" : "all";
+      await navigator.clipboard.writeText(String(text || ""));
+      return true;
+    }catch{
+      try{
+        const ta = document.createElement("textarea");
+        ta.value = String(text || "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        return true;
+      }catch{
+        return false;
+      }
+    }
   }
 
   function saveSettings(){
-    try { localStorage.setItem(CFG.LS_SETTINGS, JSON.stringify(state.settings)); } catch {}
-    try { localStorage.setItem(CFG.LS_FAVS, JSON.stringify([...state.favs])); } catch {}
-    try { localStorage.setItem(CFG.LS_RANKS, JSON.stringify(state.ranks)); } catch {}
-    try { localStorage.setItem(CFG.LS_COMPACT, state.compact ? "1" : "0"); } catch {}
+    try{
+      localStorage.setItem(CFG.LS_SETTINGS, JSON.stringify(state.settings || {}));
+    }catch{}
+  }
+
+  function loadSettings(){
+    const defaults = {
+      autoRefresh: true,
+      refreshEveryMs: 120_000,
+      maxTrends: 35,
+      alertsEnabled: true,
+      tickerEnabled: false,
+      tickerSpeedSec: 28,
+
+      memeMaxPosts: 45,
+      noThumbs: false,
+      memeRangeHrs: 48,
+
+      view: "memes"
+    };
+
+    try{
+      const raw = localStorage.getItem(CFG.LS_SETTINGS);
+      const obj = raw ? JSON.parse(raw) : null;
+      state.settings = { ...defaults, ...(obj || {}) };
+    }catch{
+      state.settings = { ...defaults };
+    }
+
+    state.view = state.settings.view || "memes";
+    state.settings.refreshEveryMs = clamp(Number(state.settings.refreshEveryMs || 120_000), CFG.MIN_REFRESH_MS, 900_000);
+    state.settings.maxTrends = clamp(Number(state.settings.maxTrends || 35), 10, 80);
+    state.settings.tickerSpeedSec = clamp(Number(state.settings.tickerSpeedSec || 28), 12, 120);
+    state.settings.memeMaxPosts = clamp(Number(state.settings.memeMaxPosts || 45), 10, 120);
+    state.settings.memeRangeHrs = clamp(Number(state.settings.memeRangeHrs || 48), 12, 240);
+
+    try{
+      const favRaw = localStorage.getItem(CFG.LS_FAVS);
+      const favArr = favRaw ? JSON.parse(favRaw) : [];
+      state.favs = new Set(Array.isArray(favArr) ? favArr : []);
+    }catch{
+      state.favs = new Set();
+    }
+
+    try{
+      const rkRaw = localStorage.getItem(CFG.LS_RANKS);
+      const rk = rkRaw ? JSON.parse(rkRaw) : {};
+      state.ranks = (rk && typeof rk === "object") ? rk : Object.create(null);
+    }catch{
+      state.ranks = Object.create(null);
+    }
+
+    try{
+      state.compact = localStorage.getItem(CFG.LS_COMPACT) === "1";
+    }catch{
+      state.compact = false;
+    }
   }
 
   function applySettingsToUI(){
-    if (selLang) selLang.value = state.settings.lang;
-    if (selWindow) selWindow.value = state.settings.window;
-    if (selGeo) selGeo.value = state.settings.geo;
-
     if (cfgAuto) cfgAuto.checked = !!state.settings.autoRefresh;
     if (cfgEvery) cfgEvery.value = String(Math.round(state.settings.refreshEveryMs / 1000));
     if (cfgMaxTrends) cfgMaxTrends.value = String(state.settings.maxTrends);
     if (cfgAlerts) cfgAlerts.checked = !!state.settings.alertsEnabled;
     if (cfgTicker) cfgTicker.checked = !!state.settings.tickerEnabled;
     if (cfgTickerSpeed) cfgTickerSpeed.value = String(state.settings.tickerSpeedSec);
-
     if (cfgMemeMaxPosts) cfgMemeMaxPosts.value = String(state.settings.memeMaxPosts);
     if (cfgNoThumbs) cfgNoThumbs.checked = !!state.settings.noThumbs;
 
-    if (selMemeSource) selMemeSource.value = state.settings.memeSource;
-    if (selMemeSort) selMemeSort.value = state.settings.memeSort;
-    if (selMemeRange) selMemeRange.value = String(state.settings.memeRangeHrs);
-
     document.documentElement.style.setProperty("--tickerDur", `${state.settings.tickerSpeedSec}s`);
-
-    document.body.classList.toggle("compact", state.compact);
-    btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
-
-    setTickerVisible(!!state.settings.tickerEnabled);
     btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
-  }
+    setTickerVisible(!!state.settings.tickerEnabled);
 
-  function pickTimespanUi(){
-    const v = String(selWindow?.value || state.settings.window || "4H").toUpperCase();
-    return (["2H","4H","6H","12H"].includes(v)) ? v : "4H";
-  }
-  function pickTimespanHours(){
-    const v = pickTimespanUi();
-    if (v === "2H") return 2;
-    if (v === "6H") return 6;
-    if (v === "12H") return 12;
-    return 4;
-  }
-  function pickLang(){
-    const v = String(selLang?.value || state.settings.lang || "spanish").toLowerCase();
-    if (v === "mixed") return "mixed";
-    if (v === "english") return "english";
-    return "spanish";
-  }
-  function pickGeo(){
-    const v = String(selGeo?.value || state.settings.geo || "ES").toUpperCase();
-    return (v === "GLOBAL") ? "GLOBAL" : "ES";
-  }
-
-  function pickMemeSource(){
-    const v = String(selMemeSource?.value || state.settings.memeSource || "mix");
-    return (["mix","memes","dankmemes","meirl","wholesome","funny"].includes(v)) ? v : "mix";
-  }
-  function pickMemeSort(){
-    const v = String(selMemeSort?.value || state.settings.memeSort || "new");
-    return (["new","hot","top"].includes(v)) ? v : "new";
-  }
-  function pickMemeRangeHrs(){
-    const v = Number(selMemeRange?.value || state.settings.memeRangeHrs || 48);
-    return clamp(v, 12, 168);
-  }
-
-  function openConfig(){ cfgModal?.classList.remove("hidden"); }
-  function closeConfig(){ cfgModal?.classList.add("hidden"); }
-
-  function setActiveTab(container, attr, value){
-    if (!container) return;
-    container.querySelectorAll(".tab").forEach(b => {
-      const v = b.getAttribute(attr);
-      const active = (v === value);
-      b.classList.toggle("isActive", active);
-      b.setAttribute("aria-selected", active ? "true" : "false");
-    });
-  }
-
-  function toggleCompact(){
-    state.compact = !state.compact;
-    document.body.classList.toggle("compact", state.compact);
+    document.body.classList.toggle("compact", !!state.compact);
     btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
-    saveSettings();
   }
+
+  function openConfig(){ if (cfgModal) show(cfgModal); }
+  function closeConfig(){ if (cfgModal) hide(cfgModal); }
 
   function setTickerVisible(on){
     if (!tickerBar) return;
-    on ? tickerBar.classList.remove("hidden") : tickerBar.classList.add("hidden");
+    on ? show(tickerBar) : hide(tickerBar);
   }
 
-  function ensureWidgetsScript(){
-    try{
-      if (window.twttr?.widgets) return true;
-      if (document.querySelector(`script[src="${CFG.twWidgets}"]`)) return true;
-      const s = document.createElement("script");
-      s.async = true;
-      s.src = CFG.twWidgets;
-      s.charset = "utf-8";
-      document.head.appendChild(s);
-      return true;
-    }catch{
-      return false;
-    }
+  function setActiveTab(root, attr, value){
+    if (!root) return;
+    const all = root.querySelectorAll(".tab");
+    all.forEach(btn => {
+      const v = btn.getAttribute(attr);
+      const isOn = (v === value);
+      btn.classList.toggle("isActive", isOn);
+      btn.setAttribute("aria-selected", isOn ? "true" : "false");
+    });
   }
 
-  function mountTimeline(){
-    if (!timelineMount) return;
-
-    timelineMount.innerHTML = "";
-
-    const a = document.createElement("a");
-    a.className = "twitter-timeline";
-    a.href = CFG.profileUrlTW;
-    a.setAttribute("data-theme", "dark");
-    a.setAttribute("data-dnt", "true");
-    a.setAttribute("data-chrome", "noheader nofooter");
-    a.setAttribute("data-height", "720");
-    a.textContent = `Tweets by @${CFG.profile}`;
-
-    timelineMount.appendChild(a);
-
-    ensureWidgetsScript();
-
-    const tryLoad = () => {
-      try{
-        if (window.twttr?.widgets?.load) window.twttr.widgets.load(timelineMount);
-      }catch{}
-    };
-
-    tryLoad();
-    setTimeout(tryLoad, 1200);
-    setTimeout(tryLoad, 2600);
-
-    setTimeout(() => {
-      const hasIframe = !!timelineMount.querySelector("iframe");
-      if (hasIframe) return;
-
-      if (document.getElementById("tl_fallback_hint")) return;
-
-      const div = document.createElement("div");
-      div.id = "tl_fallback_hint";
-      div.className = "timelineFallback";
-      div.innerHTML = `
-        <div class="tlTitle">El feed no cargó</div>
-        <div class="tlText">Algunos navegadores/adblock bloquean el widget. Puedes abrir el perfil directamente:</div>
-        <a class="tlBtn" href="${CFG.profileUrlX}" target="_blank" rel="noreferrer">Abrir @${CFG.profile}</a>
-      `;
-      timelineMount.appendChild(div);
-    }, 9000);
-  }
-
-  function setViewMode(v){
-    state.view = v;
-    state.settings.view = v;
+  function setViewMode(mode){
+    state.view = mode;
+    state.settings.view = mode;
     saveSettings();
 
-    const isMemes = (v === "memes");
-    if (trendFilters) trendFilters.classList.toggle("hidden", isMemes);
-    if (memeFilters) memeFilters.classList.toggle("hidden", !isMemes);
-    if (tabsCat) tabsCat.classList.toggle("hidden", isMemes);
-
-    if (inpQ) inpQ.placeholder = isMemes ? "Buscar memes… (título)" : "Buscar…";
-  }
-
-  function splitWords(title){
-    const raw = String(title || "")
-      .replace(/[“”«»]/g, "\"")
-      .replace(/[’]/g, "'")
-      .replace(/[^\p{L}\p{N}_#@'"\s-]/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const out = [];
-    if (!raw) return out;
-
-    for (const tok of raw.split(" ")){
-      const t = tok.trim();
-      if (!t) continue;
-
-      const isHash = t.startsWith("#") && t.length >= 2;
-      const isAt = t.startsWith("@") && t.length >= 2;
-
-      const base = (isHash || isAt) ? t.slice(1) : t;
-      const norm = base.toLowerCase();
-
-      const cap = /^[A-ZÁÉÍÓÚÜÑ]/.test(base);
-      const hasNum = /\d/.test(base);
-
-      out.push({
-        raw: t,
-        base,
-        norm,
-        isHash,
-        isAt,
-        cap,
-        hasNum
-      });
+    if (mode === "memes"){
+      hide(trendFilters);
+      show(memeFilters);
+      if (tabsCat) hide(tabsCat);
+      if (inpQ) inpQ.placeholder = "Buscar memes…";
+    }else{
+      show(trendFilters);
+      hide(memeFilters);
+      if (tabsCat) show(tabsCat);
+      if (inpQ) inpQ.placeholder = "Buscar…";
     }
-    return out;
   }
 
-  const STOP = new Set([
-    "de","la","el","y","a","en","un","una","por","para","con","sin","del","los","las","al",
-    "the","and","or","to","in","of","for","on","at","with","from","by","is","are","was","were",
-    "que","se","su","sus","como","más","menos","muy","ya","no","sí","si","yo","tu","tú","mi","me",
-    "this","that","these","those","it","its","as","an","be","been","being"
-  ]);
-
-  function isStop(w){
-    const s = String(w || "").toLowerCase();
-    return !s || s.length <= 2 || STOP.has(s);
+  function pickMemeRangeHrs(){
+    const v = Number(selMemeRange?.value || 48);
+    return clamp(v, 12, 240);
   }
 
-  function extractEntityPhrases(words){
-    const phrases = [];
-    let buf = [];
-    const flush = () => {
-      if (buf.length >= 2){
-        const label = buf.map(x => x.base).join(" ");
-        const key = label.toLowerCase();
-        phrases.push({ key, label });
-      }
-      buf = [];
-    };
-
-    for (const w of words){
-      if (!w.base || w.isHash || w.isAt) { flush(); continue; }
-      if (w.cap && !w.hasNum && w.base.length >= 3){
-        buf.push(w);
-      }else{
-        flush();
-      }
-    }
-    flush();
-    return phrases;
+  function fmtNum(n){
+    const x = Number(n || 0);
+    if (x >= 1_000_000) return `${(x/1_000_000).toFixed(1).replace(/\.0$/,"")}M`;
+    if (x >= 1_000) return `${(x/1_000).toFixed(1).replace(/\.0$/,"")}K`;
+    return String(Math.round(x));
   }
 
-  function extractNgrams(words){
-    const grams = [];
-    const usable = words.filter(w => w.base && !w.isHash && !w.isAt && !isStop(w.norm));
-    for (let i=0; i<usable.length; i++){
-      const a = usable[i];
-      const b = usable[i+1];
-      if (!b) continue;
-
-      const label = `${a.base} ${b.base}`;
-      const key = label.toLowerCase();
-      if (label.length >= 8) grams.push({ key, label });
-    }
-    return grams;
+  function relTimeFromUtcSeconds(sec){
+    const ms = Number(sec || 0) * 1000;
+    const diff = Date.now() - ms;
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "ahora";
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return `${h}h`;
+    const d = Math.floor(h / 24);
+    return `${d}d`;
   }
 
-  function categoryOf(label){
-    const s = safeLower(label);
-
-    const sports = ["fútbol","liga","champions","nba","nfl","mlb","ucl","gol","barça","madrid","real madrid","atleti","tenis","formula","f1","ufc"];
-    const politics = ["gobierno","presidente","elecciones","congreso","parlamento","trump","biden","putin","zelensky","otan","ue","europa","israel","gaza","ucrania","iran","china","vox","psoe","pp"];
-    const news = ["muere","atentado","terremoto","incendio","explosión","accidente","hospital","alerta","última hora","breaking"];
-    const viral = ["meme","viral","tiktok","streamer","youtuber","instagram","onlyfans","trend","challenge"];
-
-    if (sports.some(k => s.includes(k))) return "sports";
-    if (politics.some(k => s.includes(k))) return "politics";
-    if (news.some(k => s.includes(k))) return "news";
-    if (viral.some(k => s.includes(k))) return "viral";
-    return "all";
-  }
-
-  function computeTrends(articles){
-    const scores = new Map();
-    const meta = new Map();
-
-    const bump = (key, label, amt, a) => {
-      if (!key || isStop(key)) return;
-      const v = scores.get(key) || 0;
-      scores.set(key, v + amt);
-
-      if (!meta.has(key) && a){
-        const url = (a?.url) ? String(a.url) : "";
-        const title = (a?.title) ? String(a.title) : "";
-        const img = (a?.socialimage || a?.image || a?.socialimageurl || "") ? String(a.socialimage || a.image || a.socialimageurl) : "";
-        meta.set(key, {
-          label: label || key,
-          exampleUrl: url,
-          sampleTitle: title,
-          sampleImage: (img.startsWith("http") ? img : "")
-        });
-      }
-    };
-
-    for (const a of (articles || [])){
-      const title = String(a?.title || "");
-      if (!title) continue;
-
-      const words = splitWords(title);
-
-      for (const w of words){
-        if (w.isHash && w.norm.length >= 3) bump(w.norm, w.raw, 6, a);
-        if (w.isAt && w.norm.length >= 3) bump(w.norm, w.raw, 5, a);
-      }
-
-      for (const w of words){
-        if (!w.base) continue;
-        if (w.isHash || w.isAt) continue;
-        if (isStop(w.norm)) continue;
-        bump(w.norm, w.base, w.cap ? 2.2 : 1.1, a);
-      }
-
-      for (const p of extractEntityPhrases(words)) bump(p.key, p.label, 4.5, a);
-      for (const p of extractNgrams(words)) bump(p.key, p.label, 2.0, a);
-    }
-
-    const items = [];
-    for (const [key, score] of scores.entries()){
-      const m = meta.get(key) || { label: key, exampleUrl: "", sampleTitle: "", sampleImage:"" };
-      const cat = categoryOf(m.label);
-      items.push({
-        key,
-        label: m.label,
-        score,
-        cat,
-        exampleUrl: m.exampleUrl,
-        sampleTitle: m.sampleTitle,
-        sampleImage: m.sampleImage
-      });
-    }
-
-    items.sort((a,b) => b.score - a.score);
-
-    const ranked = items.map((it, idx) => {
-      const rank = idx + 1;
-      const prevRank = state.ranks[it.key];
-      const delta = (typeof prevRank === "number") ? (prevRank - rank) : 0;
-      return { ...it, rank, delta };
-    });
-
-    const nextRanks = Object.create(null);
-    for (const it of ranked) nextRanks[it.key] = it.rank;
-    state.ranks = nextRanks;
-
-    return ranked;
-  }
-
-  function buildXSearchUrl(label){
-    let q = String(label || "").trim();
-    if (!q) return CFG.profileUrlX;
-    if (!q.startsWith("#") && !q.startsWith("@") && /\s/.test(q)) q = `"${q}"`;
-    return CFG.xSearchBase + encodeURIComponent(q);
-  }
-
-  function yyyymmddhhmmssUTC(d){
-    const pad = (n) => String(n).padStart(2,"0");
-    return (
-      d.getUTCFullYear() +
-      pad(d.getUTCMonth()+1) +
-      pad(d.getUTCDate()) +
-      pad(d.getUTCHours()) +
-      pad(d.getUTCMinutes()) +
-      pad(d.getUTCSeconds())
-    );
-  }
-
-  function buildGdeltQuery(){
-    const lang = pickLang();
-    const geo = pickGeo();
-
-    let q;
-    if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
-    else q = `sourcelang:${lang}`;
-
-    if (geo === "GLOBAL" && lang === "spanish"){
-      q = `(sourcelang:spanish OR sourcelang:english)`;
-    }
-    return q;
-  }
-
-  function buildGdeltUrl(){
-    const hours = pickTimespanHours();
-    const end = new Date();
-    const start = new Date(Date.now() - hours * 3600_000);
-
-    const params = new URLSearchParams();
-    params.set("format", "json");
-    params.set("mode", "artlist");
-    params.set("sort", "hybridrel");
-    params.set("maxrecords", String(clamp(state.settings.maxArticles, 50, 500)));
-    params.set("query", buildGdeltQuery());
-    params.set("startdatetime", yyyymmddhhmmssUTC(start));
-    params.set("enddatetime", yyyymmddhhmmssUTC(end));
-    return `${CFG.gdeltBase}?${params.toString()}`;
-  }
-
-  async function fetchWithTimeout(url, { timeoutMs, signal } = {}){
-    const ac = new AbortController();
-    const t = setTimeout(() => { try{ ac.abort(); }catch{} }, clamp(Number(timeoutMs || CFG.FETCH_TIMEOUT_MS), 2000, 45000));
-    const anySigAbort = () => { try{ ac.abort(); }catch{} };
-
-    if (signal) {
-      if (signal.aborted) anySigAbort();
-      else signal.addEventListener("abort", anySigAbort, { once:true });
-    }
-
+  async function fetchWithTimeout(url, opts={}){
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), CFG.FETCH_TIMEOUT_MS);
     try{
-      const res = await fetch(url, { signal: ac.signal, cache: "no-store" });
-      return res;
-    } finally {
+      return await fetch(url, { ...opts, signal: ctrl.signal, cache:"no-store" });
+    }finally{
       clearTimeout(t);
-      if (signal) { try{ signal.removeEventListener("abort", anySigAbort); }catch{} }
     }
   }
 
-  async function fetchJsonSmart(url, signal){
+  async function fetchJsonSmart(url){
     const tries = [url, ...CFG.proxies.map(p => p + encodeURIComponent(url))];
     let lastErr = null;
 
     for (const u of tries){
       try{
-        const res = await fetchWithTimeout(u, { timeoutMs: CFG.FETCH_TIMEOUT_MS, signal });
-        if (!res?.ok) throw new Error(`HTTP ${res?.status || 0}`);
+        const res = await fetchWithTimeout(u, { headers: { "accept":"application/json,text/plain,*/*" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const txt = await res.text();
-        return JSON.parse(txt);
+        try{
+          return JSON.parse(txt);
+        }catch{
+          const fixed = txt.startsWith("\uFEFF") ? txt.slice(1) : txt;
+          return JSON.parse(fixed);
+        }
       }catch(e){
         lastErr = e;
       }
     }
-    throw lastErr || new Error("fetchJsonSmart failed");
+    throw lastErr || new Error("Fetch failed");
   }
 
-  function applyFilter(){
-    const q = safeLower(inpQ?.value || "");
+  function clearList(){
+    if (elList) elList.innerHTML = "";
+  }
 
-    if (state.view === "memes"){
-      let list = Array.isArray(state.memes) ? state.memes.slice() : [];
-
-      if (q) list = list.filter(m => safeLower(m.title).includes(q));
-
-      state.memesFiltered = list;
-      renderMemes(state.memesFiltered);
-      setEmpty(state.memesFiltered.length === 0);
-      setErr("");
-      buildTickerFromCurrent();
-      return;
-    }
-
-    let list = Array.isArray(state.trends) ? state.trends.slice() : [];
-
-    if (q){
-      list = list.filter(it => safeLower(it.label).includes(q));
-    }
-
-    if (state.view === "favs"){
-      list = list.filter(it => state.favs.has(it.key));
-    }
-
-    if (state.category && state.category !== "all"){
-      list = list.filter(it => it.cat === state.category);
-    }
-
-    state.filtered = list;
-    renderTrends(state.filtered);
-    setEmpty(state.filtered.length === 0);
+  function renderEmpty(msg){
+    clearList();
     setErr("");
-    buildTickerFromCurrent();
-  }
-
-  function renderTrends(list){
-    if (!elList) return;
-
-    elList.innerHTML = "";
-
-    const maxT = clamp(Number(state.settings.maxTrends || 35), 10, 80);
-    const slice = (list || []).slice(0, maxT);
-
-    for (const it of slice){
-      const row = document.createElement("div");
-      row.className = "trend";
-
-      const badgeDelta = (() => {
-        if (!it.delta) return "";
-        if (it.delta > 0) return `<span class="badge good" title="Sube en ranking">▲ ${it.delta}</span>`;
-        return `<span class="badge bad" title="Baja en ranking">▼ ${Math.abs(it.delta)}</span>`;
-      })();
-
-      const badgeCat = (it.cat && it.cat !== "all")
-        ? `<span class="badge cat">${escapeHtml(it.cat.toUpperCase())}</span>` : "";
-
-      const titleUrl = buildXSearchUrl(it.label);
-
-      const thumb = (!state.settings.noThumbs && it.sampleImage)
-        ? `<img class="tThumb" src="${escapeHtml(it.sampleImage)}" alt="">`
-        : "";
-
-      const sampleLink = it.exampleUrl
-        ? `<a class="tLink" href="${escapeHtml(it.exampleUrl)}" target="_blank" rel="noreferrer">${escapeHtml(it.sampleTitle || it.exampleUrl)}</a>`
-        : "";
-
-      row.innerHTML = `
-        <div class="tLeft">
-          <div class="tRank">${it.rank}</div>
-          <div class="tMain">
-            <div class="tTop">
-              <a class="tTitle" href="${escapeHtml(titleUrl)}" target="_blank" rel="noreferrer">${escapeHtml(it.label)}</a>
-              ${badgeDelta}
-              ${badgeCat}
-            </div>
-            <div class="tMeta">Score: ${Math.round(it.score)}</div>
-            <div class="tMedia">
-              ${thumb}
-              ${sampleLink}
-            </div>
-          </div>
-        </div>
-        <div class="actions">
-          <button class="aBtn star ${state.favs.has(it.key) ? "on" : ""}" type="button" title="Favorito" aria-label="Favorito">★</button>
-          <a class="aBtn" href="${escapeHtml(titleUrl)}" target="_blank" rel="noreferrer" title="Buscar en X">X</a>
-          ${it.exampleUrl ? `<a class="aBtn" href="${escapeHtml(it.exampleUrl)}" target="_blank" rel="noreferrer" title="Abrir noticia">↗</a>` : ""}
-        </div>
-      `;
-
-      const star = row.querySelector(".aBtn.star");
-      star?.addEventListener("click", () => {
-        if (state.favs.has(it.key)) state.favs.delete(it.key);
-        else state.favs.add(it.key);
-        saveSettings();
-        applyFilter();
-      });
-
-      elList.appendChild(row);
-    }
-  }
-
-  function fmtAgo(tsMs){
-    const ms = Date.now() - tsMs;
-    const m = Math.max(1, Math.floor(ms / 60000));
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h`;
-    const d = Math.floor(h / 24);
-    return `${d}d`;
-  }
-
-  function pickRedditMedia(p){
-    const isOver18 = !!p?.over_18;
-    if (isOver18) return null;
-
-    const url = String(p?.url_overridden_by_dest || p?.url || "");
-
-    if (p?.is_video && p?.media?.reddit_video?.fallback_url){
-      return { type: "video", url: String(p.media.reddit_video.fallback_url) };
-    }
-
-    if (p?.secure_media?.reddit_video?.fallback_url){
-      return { type: "video", url: String(p.secure_media.reddit_video.fallback_url) };
-    }
-
-    if (p?.preview?.images?.[0]?.source?.url){
-      return { type: "image", url: decodeHtmlEntities(String(p.preview.images[0].source.url)) };
-    }
-
-    if (p?.is_gallery && p?.gallery_data?.items?.length && p?.media_metadata){
-      const first = p.gallery_data.items[0];
-      const id = first?.media_id;
-      const mm = id ? p.media_metadata[id] : null;
-      const u = mm?.s?.u || mm?.p?.[mm.p.length-1]?.u;
-      if (u) return { type: "image", url: decodeHtmlEntities(String(u)) };
-    }
-
-    if (url){
-      const low = url.toLowerCase();
-      if (low.endsWith(".jpg") || low.endsWith(".jpeg") || low.endsWith(".png") || low.endsWith(".gif") || low.endsWith(".webp")){
-        return { type: "image", url };
-      }
-      if (low.includes("i.redd.it") || low.includes("i.imgur.com")) return { type: "image", url };
-    }
-
-    return null;
+    elEmpty.textContent = msg || "Sin resultados.";
+    setEmpty(true);
   }
 
   function renderMemes(list){
+    clearList();
+    setEmpty(false);
+    setErr("");
+
     if (!elList) return;
+    const frag = document.createDocumentFragment();
 
-    elList.innerHTML = "";
+    for (const m of list){
+      const el = document.createElement("div");
+      el.className = "memeCard";
 
-    const maxP = clamp(Number(state.settings.memeMaxPosts || 45), 10, 120);
-    const slice = (list || []).slice(0, maxP);
+      const sub = escapeHtml(m.subreddit || "");
+      const by = escapeHtml(m.author ? `u/${m.author}` : "");
+      const title = escapeHtml(m.title || "");
+      const time = escapeHtml(relTimeFromUtcSeconds(m.created_utc || 0));
+      const score = escapeHtml(fmtNum(m.score || 0));
+      const com = escapeHtml(fmtNum(m.num_comments || 0));
+      const url = escapeHtml(m.permalinkUrl || "#");
 
-    for (const m of slice){
-      const card = document.createElement("div");
-      card.className = "memeCard";
+      const mediaHtml = (state.settings.noThumbs || !m.mediaUrl) ? "" : (
+        m.mediaType === "video"
+          ? `<div class="memeMedia"><video controls preload="metadata" src="${escapeHtml(m.mediaUrl)}"></video></div>`
+          : `<div class="memeMedia"><img loading="lazy" decoding="async" src="${escapeHtml(m.mediaUrl)}" alt="" /></div>`
+      );
 
-      const mediaHtml = (() => {
-        if (!m.media) return "";
-        if (m.media.type === "video"){
-          return `<div class="memeMedia"><video controls playsinline preload="metadata" src="${escapeHtml(m.media.url)}"></video></div>`;
-        }
-        return `<div class="memeMedia"><img loading="lazy" decoding="async" src="${escapeHtml(m.media.url)}" alt=""></div>`;
-      })();
-
-      card.innerHTML = `
+      el.innerHTML = `
         <div class="memeHead">
           <div class="memeMeta">
-            <div class="memeSub">r/${escapeHtml(m.subreddit)}</div>
-            <div class="memeBy">u/${escapeHtml(m.author)} · ${escapeHtml(fmtAgo(m.createdMs))}</div>
-          </div>
-          <span class="tagPill">🔥 ${escapeHtml(String(m.score || 0))}</span>
-        </div>
-        <div class="memeTitle">${escapeHtml(m.title)}</div>
-        ${mediaHtml}
-        <div class="memeFoot">
-          <div class="memeStats">
-            <span class="tagPill">💬 ${escapeHtml(String(m.comments || 0))}</span>
-            <span class="tagPill">🕒 ${escapeHtml(new Date(m.createdMs).toLocaleString())}</span>
+            <div class="memeSub">r/${sub}</div>
+            <div class="memeBy">${by} · ${time}</div>
           </div>
           <div class="memeBtns">
-            <a class="aBtn" href="${escapeHtml(m.permalink)}" target="_blank" rel="noreferrer">Abrir</a>
+            <a class="aBtn" href="${url}" target="_blank" rel="noreferrer" title="Abrir">
+              ${icon("open_in_new")} <span class="hideSm">Abrir</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="memeTitle">${title}</div>
+        ${mediaHtml}
+
+        <div class="memeFoot">
+          <div class="memeStats">
+            <span class="tagPill">${icon("local_fire_department","sm")} ${score}</span>
+            <span class="tagPill">${icon("chat_bubble","sm")} ${com}</span>
+            <span class="tagPill">${icon("schedule","sm")} ${time}</span>
+          </div>
+          <div class="memeBtns">
+            <button class="aBtn" type="button" data-copy="${escapeHtml(m.title || "")} ${escapeHtml(m.permalinkUrl || "")}">
+              ${icon("content_copy")} Copiar
+            </button>
           </div>
         </div>
       `;
 
-      elList.appendChild(card);
+      el.querySelector("[data-copy]")?.addEventListener("click", async (e) => {
+        const txt = e.currentTarget?.getAttribute("data-copy") || "";
+        const ok = await copyToClipboard(txt);
+        toast("Copiado", ok ? "Texto copiado al portapapeles." : "No se pudo copiar.");
+      });
+
+      frag.appendChild(el);
     }
+
+    elList.appendChild(frag);
   }
 
-  function buildTickerFromCurrent(){
-    if (!tickerTrack) return;
-
-    const items = [];
-    if (state.view === "memes"){
-      for (const m of (state.memesFiltered || []).slice(0, 18)){
-        items.push({ label: m.title, url: m.permalink });
-      }
-    }else{
-      for (const it of (state.filtered || []).slice(0, 18)){
-        items.push({ label: it.label, url: buildXSearchUrl(it.label) });
-      }
+  function applyMemeFilter(){
+    const q = safeLower(inpQ?.value || "").trim();
+    let list = state.memes || [];
+    if (q){
+      list = list.filter(m => {
+        const hay = `${m.title||""} ${m.subreddit||""} ${m.author||""}`.toLowerCase();
+        return hay.includes(q);
+      });
     }
-
-    if (!items.length){
-      tickerTrack.innerHTML = "";
-      return;
-    }
-
-    const doubled = items.concat(items);
-    tickerTrack.innerHTML = doubled.map(x => `
-      <a class="tickerItem" href="${escapeHtml(x.url)}" target="_blank" rel="noreferrer">
-        <span class="tickerDot"></span>${escapeHtml(x.label)}
-      </a>
-    `).join("");
+    state.memesFiltered = list;
+    if (!list.length) renderEmpty("No hay memes con estos filtros.");
+    else renderMemes(list);
+    if (state.settings.tickerEnabled) buildTickerFromCurrent();
   }
 
-  async function refreshTrends(){
-    setErr("");
-    setEmpty(false);
+  async function fetchSubreddit(sub, sort){
+    const s = String(sort || "new");
+    const base = `${CFG.redditBase}/r/${encodeURIComponent(sub)}/${encodeURIComponent(s)}.json?raw_json=1&limit=80`;
+    const url = (s === "top") ? (base + "&t=day") : base;
+    const data = await fetchJsonSmart(url);
+    const children = data?.data?.children || [];
+    const posts = children.map(c => c?.data).filter(Boolean);
+    return posts;
+  }
 
-    try{
-      state.aborter?.abort?.();
-    }catch{}
-    state.aborter = new AbortController();
+  function pickMemeMedia(p){
+    const url = String(p?.url_overridden_by_dest || p?.url || "");
+    const low = url.toLowerCase();
 
-    try{
-      const url = buildGdeltUrl();
-      const data = await fetchJsonSmart(url, state.aborter.signal);
-      const articles = (data && Array.isArray(data.articles)) ? data.articles : [];
-
-      state.trends = computeTrends(articles);
-      saveSettings();
-
-      if (elLast) elLast.textContent = nowISO();
-      applyFilter();
-    }catch{
-      setErr("No se pudo cargar tendencias. Prueba otra ventana (6H/12H) o desactiva privacidad estricta/adblock.");
-      if (elLast) elLast.textContent = nowISO();
+    if (p?.is_video && p?.media?.reddit_video?.fallback_url){
+      return { type:"video", url: String(p.media.reddit_video.fallback_url) };
     }
+
+    if (/\.(png|jpe?g|gif|webp)$/i.test(low)){
+      return { type:"image", url };
+    }
+
+    const prev = p?.preview?.images?.[0]?.source?.url;
+    if (prev){
+      return { type:"image", url: decodeHtmlEntities(prev) };
+    }
+
+    return { type:"", url:"" };
   }
 
   async function refreshMemes(){
     setErr("");
     setEmpty(false);
+    clearList();
 
-    try{
-      state.aborter?.abort?.();
-    }catch{}
-    state.aborter = new AbortController();
+    state.settings.memeRangeHrs = pickMemeRangeHrs();
+    saveSettings();
 
-    try{
-      const source = pickMemeSource();
-      const sort = pickMemeSort();
-      const rangeHrs = pickMemeRangeHrs();
-      const subs = CFG.redditSubs[source] || CFG.redditSubs.mix;
+    const sourceKey = String(selMemeSource?.value || "mix");
+    const sort = String(selMemeSort?.value || "new");
+    const subs = CFG.redditSubs[sourceKey] || CFG.redditSubs.mix;
 
-      const cutoff = Date.now() - rangeHrs * 3600_000;
+    toast("MEMES", `Cargando memes (últimas ${state.settings.memeRangeHrs}h)…`);
 
-      const all = [];
-      for (const sub of subs){
-        const path = (sort === "hot") ? "hot" : (sort === "top" ? "top" : "new");
-        const params = new URLSearchParams();
-        params.set("limit", "80");
-        params.set("raw_json", "1");
-        if (sort === "top") params.set("t", rangeHrs <= 24 ? "day" : "week");
+    const maxAgeMs = state.settings.memeRangeHrs * 3600_000;
+    const cutoff = Date.now() - maxAgeMs;
 
-        const url = `${CFG.redditBase}/r/${sub}/${path}.json?${params.toString()}`;
-        const json = await fetchJsonSmart(url, state.aborter.signal);
-        const children = json?.data?.children || [];
-
-        for (const ch of children){
-          const p = ch?.data;
-          if (!p) continue;
-          if (p.over_18) continue;
-
-          const createdMs = Math.floor(Number(p.created_utc || 0) * 1000);
+    const collected = [];
+    for (const sub of subs){
+      try{
+        const posts = await fetchSubreddit(sub, sort);
+        for (const p of posts){
+          const createdMs = Number(p?.created_utc || 0) * 1000;
           if (!createdMs || createdMs < cutoff) continue;
 
-          const media = pickRedditMedia(p);
-          if (!media) continue;
+          const perm = String(p?.permalink || "");
+          const permalinkUrl = perm ? (CFG.redditBase + perm) : "";
 
-          all.push({
-            id: String(p.id || ""),
-            title: String(p.title || ""),
-            subreddit: String(p.subreddit || sub),
-            author: String(p.author || ""),
-            score: Number(p.score || 0),
-            comments: Number(p.num_comments || 0),
-            createdMs,
-            permalink: `${CFG.redditBase}${String(p.permalink || "")}`,
-            media
+          const media = pickMemeMedia(p);
+
+          collected.push({
+            id: String(p?.id || `${sub}_${createdMs}`),
+            subreddit: String(p?.subreddit || sub),
+            author: String(p?.author || ""),
+            title: decodeHtmlEntities(String(p?.title || "")),
+            created_utc: Number(p?.created_utc || 0),
+            score: Number(p?.score || 0),
+            num_comments: Number(p?.num_comments || 0),
+            permalinkUrl,
+            mediaType: media.type,
+            mediaUrl: media.url
           });
         }
+      }catch(e){
+        // tolerante: si falla un sub, seguimos con el resto
+      }
+    }
+
+    const seen = new Set();
+    const uniq = [];
+    for (const m of collected){
+      const k = m.permalinkUrl || m.id;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      uniq.push(m);
+    }
+
+    uniq.sort((a,b) => (b.created_utc - a.created_utc));
+    state.memes = uniq.slice(0, state.settings.memeMaxPosts);
+
+    if (!state.memes.length) renderEmpty("No hay memes recientes con estos filtros.");
+    else applyMemeFilter();
+
+    elLast && (elLast.textContent = nowISO());
+    if (state.settings.tickerEnabled) buildTickerFromCurrent();
+  }
+
+  function setFav(key, on){
+    const k = String(key || "");
+    if (!k) return;
+    if (on) state.favs.add(k);
+    else state.favs.delete(k);
+    try{ localStorage.setItem(CFG.LS_FAVS, JSON.stringify([...state.favs])); }catch{}
+  }
+
+  function isFav(key){ return state.favs.has(String(key||"")); }
+
+  function renderTrends(list){
+    clearList();
+    setEmpty(false);
+    setErr("");
+
+    if (!elList) return;
+
+    const frag = document.createDocumentFragment();
+    let idx = 0;
+
+    for (const t of list){
+      idx++;
+
+      const key = String(t.term || "");
+      const favOn = isFav(key);
+
+      const el = document.createElement("div");
+      el.className = "trend";
+      el.innerHTML = `
+        <div class="tRank">${escapeHtml(String(idx))}</div>
+        <div class="tBody">
+          <div class="tTitle">${escapeHtml(t.term || "")}</div>
+          <div class="tMeta">
+            <span>${escapeHtml(t.categoryLabel || "General")}</span>
+            <span>${escapeHtml(fmtNum(t.score || 0))}</span>
+          </div>
+        </div>
+        <div class="tBtns">
+          <button class="aBtn star ${favOn ? "on":""}" type="button" data-fav="${escapeHtml(key)}" aria-label="Favorito">
+            ${favOn ? icon("star","fill") : icon("star")}
+          </button>
+          <a class="aBtn" href="${CFG.xSearchBase + encodeURIComponent(key)}" target="_blank" rel="noreferrer" title="Buscar en X">
+            ${icon("travel_explore")} X
+          </a>
+          <button class="aBtn" type="button" data-copy="${escapeHtml(key)}">
+            ${icon("content_copy")} Copiar
+          </button>
+        </div>
+      `;
+
+      el.querySelector("[data-fav]")?.addEventListener("click", (e) => {
+        const k = e.currentTarget?.getAttribute("data-fav") || "";
+        const next = !isFav(k);
+        setFav(k, next);
+        applyFilter();
+      });
+
+      el.querySelector("[data-copy]")?.addEventListener("click", async (e) => {
+        const txt = e.currentTarget?.getAttribute("data-copy") || "";
+        const ok = await copyToClipboard(txt);
+        toast("Copiado", ok ? "Texto copiado al portapapeles." : "No se pudo copiar.");
+      });
+
+      frag.appendChild(el);
+    }
+
+    elList.appendChild(frag);
+  }
+
+  const STOP = new Set([
+    "de","la","el","y","en","a","los","las","un","una","por","para","con","sin","del","al","se","su",
+    "the","and","for","with","from","that","this","into","over","under","after","before","about","your","you"
+  ]);
+
+  function normalizeTerm(s){
+    return String(s||"")
+      .replace(/\s+/g," ")
+      .trim();
+  }
+
+  function tokeniseTitle(title){
+    const raw = String(title || "")
+      .replace(/[“”"()［\]【】{}<>]/g," ")
+      .replace(/[’']/g,"'")
+      .replace(/[—–·•]/g," ")
+      .replace(/[.,:;!?]/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+
+    if (!raw) return [];
+    return raw.split(" ").map(w => w.trim()).filter(Boolean);
+  }
+
+  function isGoodWord(w){
+    if (!w) return false;
+    const low = w.toLowerCase();
+    if (STOP.has(low)) return false;
+    if (low.length < 3) return false;
+    if (/^\d+$/.test(low)) return false;
+    if (/^https?:/i.test(low)) return false;
+    return true;
+  }
+
+  function buildNgrams(words, nMin=2, nMax=4){
+    const out = [];
+    for (let n=nMin; n<=nMax; n++){
+      for (let i=0; i<=words.length-n; i++){
+        const chunk = words.slice(i, i+n);
+        const joined = chunk.join(" ");
+        out.push(joined);
+      }
+    }
+    return out;
+  }
+
+  function categoryHeuristic(term){
+    const t = safeLower(term);
+    if (/(gol|liga|champions|barça|madrid|nba|nfl|mlb|tenis|fútbol|futbol)/i.test(t)) return { key:"sports", label:"Deportes" };
+    if (/(elecciones|gobierno|congreso|senado|presidente|ministro|pp|psoe|vox|podemos|trump|biden|putin|zelenski)/i.test(t)) return { key:"politics", label:"Política" };
+    if (/(viral|tiktok|meme|stream|influencer|celebridad|famoso)/i.test(t)) return { key:"viral", label:"Viral" };
+    return { key:"news", label:"Noticias" };
+  }
+
+  async function refreshTrends(){
+    setErr("");
+    setEmpty(false);
+    clearList();
+
+    toast("Tendencias", "Calculando tendencias…");
+
+    const lang = String(selLang?.value || "spanish");
+    const windowStr = String(selWindow?.value || "4H");
+    const geo = String(selGeo?.value || "ES");
+
+    const langQ =
+      (lang === "english") ? "(sourcelang:eng)" :
+      (lang === "mixed") ? "(sourcelang:spa OR sourcelang:eng)" :
+      "(sourcelang:spa)";
+
+    const geoQ = (geo === "GLOBAL") ? "" : "(sourceCountry:ES)";
+    const query = geoQ ? `${langQ} AND ${geoQ}` : `${langQ}`;
+
+    const url = `${CFG.gdeltBase}?query=${encodeURIComponent(query)}&mode=ArtList&format=json&maxrecords=250&sort=HybridRel&timespan=${encodeURIComponent(windowStr)}`;
+
+    let data;
+    try{
+      data = await fetchJsonSmart(url);
+    }catch(e){
+      setErr("No se pudo cargar GDELT ahora mismo.");
+      renderEmpty("Sin datos.");
+      return;
+    }
+
+    const arts = Array.isArray(data?.articles) ? data.articles : [];
+    const freq = new Map();
+
+    for (const a of arts){
+      const title = String(a?.title || "");
+      const words = tokeniseTitle(title).filter(isGoodWord);
+
+      // hashtags / mentions
+      for (const w of tokeniseTitle(title)){
+        if (w.startsWith("#") && w.length >= 3) freq.set(w, (freq.get(w)||0) + 3);
+        if (w.startsWith("@") && w.length >= 3) freq.set(w, (freq.get(w)||0) + 2);
       }
 
-      const map = new Map();
-      for (const m of all){
-        if (!m.id) continue;
-        if (!map.has(m.id)) map.set(m.id, m);
+      // ngrams (2-4)
+      const grams = buildNgrams(words, 2, 4);
+      for (const g of grams){
+        const term = normalizeTerm(g);
+        if (term.length < 8) continue;
+        freq.set(term, (freq.get(term)||0) + 1);
       }
 
-      const merged = [...map.values()];
-      merged.sort((a,b) => b.createdMs - a.createdMs);
+      // proper-ish single words
+      for (const w of words){
+        if (w[0] === w[0]?.toUpperCase() && w.length >= 4){
+          freq.set(w, (freq.get(w)||0) + 1);
+        }
+      }
+    }
 
-      state.memes = merged;
-      if (elLast) elLast.textContent = nowISO();
+    const items = [];
+    for (const [term, score] of freq.entries()){
+      if (score < 3) continue;
+      const cat = categoryHeuristic(term);
+      items.push({ term, score, category: cat.key, categoryLabel: cat.label });
+    }
 
-      applyFilter();
-    }catch{
-      setErr("No se pudo cargar memes (CORS/proxy). Prueba otra fuente o recarga.");
-      if (elLast) elLast.textContent = nowISO();
+    items.sort((a,b) => (b.score - a.score));
+    state.trends = items.slice(0, state.settings.maxTrends);
+
+    applyFilter();
+    elLast && (elLast.textContent = nowISO());
+    if (state.settings.tickerEnabled) buildTickerFromCurrent();
+  }
+
+  function applyTrendFilter(){
+    const q = safeLower(inpQ?.value || "").trim();
+    const cat = state.category || "all";
+    const view = state.view;
+
+    let list = state.trends || [];
+
+    if (view === "favs"){
+      list = list.filter(t => isFav(t.term));
+    }
+
+    if (cat !== "all"){
+      list = list.filter(t => (t.category === cat));
+    }
+
+    if (q){
+      list = list.filter(t => safeLower(t.term).includes(q));
+    }
+
+    state.filtered = list;
+
+    if (!list.length) renderEmpty("No hay tendencias con estos filtros.");
+    else renderTrends(list);
+
+    if (state.settings.tickerEnabled) buildTickerFromCurrent();
+  }
+
+  function applyFilter(){
+    setErr("");
+    setEmpty(false);
+
+    if (state.view === "memes") return applyMemeFilter();
+    return applyTrendFilter();
+  }
+
+  function buildTickerFromCurrent(){
+    if (!tickerTrack) return;
+
+    const items =
+      (state.view === "memes")
+        ? (state.memesFiltered || state.memes || []).map(m => m.title).filter(Boolean)
+        : (state.filtered || state.trends || []).map(t => t.term).filter(Boolean);
+
+    if (!items.length){
+      tickerTrack.textContent = "";
+      return;
+    }
+
+    const clean = items.slice(0, 30).map(s => String(s).replace(/\s+/g," ").trim()).filter(Boolean);
+    const doubled = clean.concat(clean);
+
+    tickerTrack.innerHTML = doubled.map(s => `<span>${escapeHtml(s)}</span>`).join("  <span class=\"dot\">•</span>  ");
+  }
+
+  function mountTimeline(){
+    if (!timelineMount) return;
+
+    timelineMount.innerHTML = `
+      <a class="twitter-timeline"
+         data-theme="dark"
+         data-chrome="noheader nofooter transparent"
+         data-dnt="true"
+         data-tweet-limit="7"
+         href="${CFG.profileUrlTW}">
+         ${escapeHtml(CFG.profileUrlTW)}
+      </a>
+    `;
+
+    try{
+      if (window.twttr?.widgets?.load) window.twttr.widgets.load(timelineMount);
+    }catch{}
+
+    setTimeout(() => {
+      const hasIframe = !!timelineMount.querySelector("iframe");
+      if (!hasIframe){
+        timelineMount.innerHTML = `
+          <div class="hint">
+            No se pudo cargar el widget embebido. Abre el perfil directamente:
+            <div style="margin-top:10px;">
+              <a class="btn ghost" href="${CFG.profileUrlX}" target="_blank" rel="noreferrer">
+                ${icon("open_in_new")} Abrir @${escapeHtml(CFG.profile)}
+              </a>
+            </div>
+          </div>
+        `;
+      }
+    }, 1800);
+  }
+
+  async function refresh(){
+    try { state.aborter?.abort?.(); } catch {}
+    state.aborter = new AbortController();
+
+    if (state.view === "memes"){
+      await refreshMemes();
+    }else{
+      await refreshTrends();
     }
   }
 
   function schedule(){
     try { if (state.refreshTimer) clearTimeout(state.refreshTimer); } catch {}
+    state.refreshTimer = null;
+
     if (!state.settings.autoRefresh) return;
 
-    const ms = clamp(Number(state.settings.refreshEveryMs || 120000), CFG.MIN_REFRESH_MS, 900000);
+    const ms = clamp(Number(state.settings.refreshEveryMs || 120_000), CFG.MIN_REFRESH_MS, 900_000);
     state.refreshTimer = setTimeout(async () => {
-      await refreshCurrent();
+      await refresh();
       schedule();
     }, ms);
-  }
-
-  async function refreshCurrent(){
-    if (state.view === "memes") return refreshMemes();
-    return refreshTrends();
-  }
-
-  async function swSkipWaiting(reg){
-    try{
-      if (!reg?.waiting) return;
-      reg.waiting.postMessage({ type: "SKIP_WAITING" });
-    }catch{}
   }
 
   async function initAutoUpdateSW(){
     if (!("serviceWorker" in navigator)) return;
 
     try{
-      const reg = await navigator.serviceWorker.register(CFG.SW_URL, { updateViaCache: "none" });
+      const reg = await navigator.serviceWorker.register(CFG.SW_URL, { updateViaCache:"none" });
       state.swReg = reg;
-
-      const reloadOnce = async () => {
-        try{
-          if (sessionStorage.getItem(CFG.SS_SW_RELOADED) === "1") return;
-          sessionStorage.setItem(CFG.SS_SW_RELOADED, "1");
-          location.reload();
-        }catch{}
-      };
-
-      navigator.serviceWorker.addEventListener("controllerchange", () => { reloadOnce(); });
 
       const tick = async () => {
         try{
           await reg.update();
-          if (reg.waiting) await swSkipWaiting(reg);
+          const nw = reg.installing || reg.waiting;
+          if (nw && nw.state === "installed"){
+            const key = CFG.SS_SW_RELOADED;
+            const did = sessionStorage.getItem(key) === "1";
+            if (!did){
+              sessionStorage.setItem(key, "1");
+              toast("Actualización", "Aplicando update…");
+              setTimeout(() => location.reload(), 450);
+            }
+          }
         }catch{}
       };
 
-      try { if (state.swTick) clearInterval(state.swTick); } catch {}
       state.swTick = setInterval(tick, CFG.SW_UPDATE_EVERY_MS);
-
-      on(document, "visibilitychange", () => {
-        if (document.visibilityState === "visible") tick();
-      }, { passive:true });
-
-      tick();
+      setTimeout(tick, 2500);
     }catch{}
   }
 
   function bindUI(){
-    on(btnRefresh, "click", async () => { await refreshCurrent(); schedule(); });
-    on(btnCompact, "click", () => { toggleCompact(); });
+    on(btnRefresh, "click", async () => { await refresh(); schedule(); });
+    on(btnCompact, "click", () => {
+      state.compact = !state.compact;
+      try{ localStorage.setItem(CFG.LS_COMPACT, state.compact ? "1" : "0"); }catch{}
+      document.body.classList.toggle("compact", !!state.compact);
+      btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
+    });
 
     on(inpQ, "input", () => applyFilter());
 
-    on(selLang, "change", async () => { state.settings.lang = pickLang(); saveSettings(); if (state.view !== "memes") await refreshTrends(); schedule(); });
-    on(selWindow, "change", async () => { state.settings.window = pickTimespanUi(); saveSettings(); if (state.view !== "memes") await refreshTrends(); schedule(); });
-    on(selGeo, "change", async () => { state.settings.geo = pickGeo(); saveSettings(); if (state.view !== "memes") await refreshTrends(); schedule(); });
+    on(selLang, "change", async () => { if (state.view !== "memes") await refreshTrends(); schedule(); });
+    on(selWindow, "change", async () => { if (state.view !== "memes") await refreshTrends(); schedule(); });
+    on(selGeo, "change", async () => { if (state.view !== "memes") await refreshTrends(); schedule(); });
 
-    on(selMemeSource, "change", async () => { state.settings.memeSource = pickMemeSource(); saveSettings(); if (state.view === "memes") await refreshMemes(); schedule(); });
-    on(selMemeSort, "change", async () => { state.settings.memeSort = pickMemeSort(); saveSettings(); if (state.view === "memes") await refreshMemes(); schedule(); });
+    on(selMemeSource, "change", async () => { if (state.view === "memes") await refreshMemes(); schedule(); });
+    on(selMemeSort, "change", async () => { if (state.view === "memes") await refreshMemes(); schedule(); });
     on(selMemeRange, "change", async () => { state.settings.memeRangeHrs = pickMemeRangeHrs(); saveSettings(); if (state.view === "memes") await refreshMemes(); schedule(); });
 
     on(tabsView, "click", async (e) => {
@@ -1111,10 +962,7 @@
       setViewMode(next);
       setActiveTab(tabsView, "data-view", next);
 
-      if (next !== "memes"){
-        if (tabsCat) show(tabsCat);
-      }
-
+      if (next !== "memes" && tabsCat) show(tabsCat);
       applyFilter();
 
       if (next === "memes" && (!state.memes || state.memes.length === 0)){
@@ -1176,7 +1024,7 @@
 
       saveSettings();
       closeConfig();
-      await refreshCurrent();
+      await refresh();
       schedule();
     });
 
@@ -1185,27 +1033,21 @@
   }
 
   (async function init(){
-    applyPngLogoIfAvailable();
-
     loadSettings();
     applySettingsToUI();
 
     setNet(navigator.onLine);
 
-    setViewMode(state.view);
-    setActiveTab(tabsView, "data-view", state.view);
-    setActiveTab(tabsCat, "data-cat", state.category);
+    setViewMode(state.view || "memes");
+    setActiveTab(tabsView, "data-view", state.view || "memes");
+    setActiveTab(tabsCat, "data-cat", state.category || "all");
 
     bindUI();
 
     mountTimeline();
     initAutoUpdateSW();
 
-    buildTickerFromCurrent();
-
-    await refreshCurrent();
+    await refresh();
     schedule();
-
-    if (state.view === "memes") toast("MEMES", "Cargando memes de las últimas 48h…");
   })();
 })();

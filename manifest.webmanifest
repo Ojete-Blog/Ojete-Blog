@@ -1,21 +1,13 @@
 {
-  "name": "GlobalEye Trends",
-  "short_name": "GlobalEye",
+  "name": "OjoOjitoOjete BLOG",
+  "short_name": "OOO BLOG",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#070A12",
-  "theme_color": "#070A12",
-  "description": "Feed embebido de X (sin API) con media + tendencias actuales (open data).",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "description": "GlobalEye Trends — Memes tipo Reddit + tendencias + feed embebido de X.",
   "icons": [
-    {
-      "src": "./logo_ojo_favicon.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "./logo_ojo_favicon.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
+    { "src": "./logo_ojo_favicon.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./logo_ojo_favicon.png", "sizes": "512x512", "type": "image/png" }
   ]
 }

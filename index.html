@@ -1,16 +1,21 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="es" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#070A12" />
-  <meta name="description" content="GlobalEye Trends — Feed embebido de X (sin API) con media + tendencias actuales (open data) + memes tipo Reddit." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit (últimas 48h) + tendencias (open data) + feed embebido de X." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <meta name="robots" content="index,follow" />
 
   <link rel="preconnect" href="https://platform.twitter.com" crossorigin />
   <link rel="dns-prefetch" href="//platform.twitter.com" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@450;600;750;850;950&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,0,0&display=swap" rel="stylesheet" />
 
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./logo_ojo_favicon.png" />
@@ -20,7 +25,7 @@
   <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
   <script defer src="./app.js"></script>
 
-  <title>OJO OJITO OJETE - Blog</title>
+  <title>OJO OJITO OJETE</title>
 </head>
 
 <body>
@@ -34,7 +39,9 @@
       <div class="tickerViewport">
         <div id="tickerTrack" class="tickerTrack" aria-label="Ticker"></div>
       </div>
-      <button id="tickerClose" class="iconBtn" type="button" aria-label="Cerrar ticker">✕</button>
+      <button id="tickerClose" class="iconBtn" type="button" aria-label="Cerrar ticker">
+        <span class="ms" aria-hidden="true">close</span>
+      </button>
     </div>
   </div>
 
@@ -54,16 +61,30 @@
       </div>
 
       <div class="topActions">
-        <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Abrir en X</a>
-        <button id="btnRefresh" class="btn ghost" type="button">Actualizar</button>
-        <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">Compacto</button>
-        <button id="btnTicker" class="btn ghost" type="button" aria-pressed="false">Ticker</button>
-        <button id="btnConfig" class="btn" type="button">Config</button>
+        <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+          <span class="ms" aria-hidden="true">open_in_new</span> Abrir en X
+        </a>
+        <button id="btnRefresh" class="btn ghost" type="button">
+          <span class="ms" aria-hidden="true">refresh</span> Actualizar
+        </button>
+        <button id="btnCompact" class="btn ghost" type="button" aria-pressed="false">
+          <span class="ms" aria-hidden="true">density_small</span> Compacto
+        </button>
+        <button id="btnTicker" class="btn ghost" type="button" aria-pressed="false">
+          <span class="ms" aria-hidden="true">linear_scale</span> Ticker
+        </button>
+        <button id="btnConfig" class="btn" type="button">
+          <span class="ms" aria-hidden="true">tune</span> Config
+        </button>
       </div>
 
       <div class="topStatus" role="status" aria-label="Estado">
-        <span class="pill" title="Estado de red">🌐 <span id="netStatus">Online</span></span>
-        <span class="pill" title="Última actualización">⏱ <span id="lastUpdated">—</span></span>
+        <span class="pill" title="Estado de red">
+          <span class="ms" aria-hidden="true">wifi</span> <span id="netStatus">Online</span>
+        </span>
+        <span class="pill" title="Última actualización">
+          <span class="ms" aria-hidden="true">schedule</span> <span id="lastUpdated">—</span>
+        </span>
       </div>
     </div>
   </header>
@@ -73,21 +94,27 @@
       <div class="card">
         <div class="cardTitle">Modo</div>
         <div class="hint">
-          Usa la pestaña <b>MEMES</b> para ver tarjetas tipo Reddit con memes de las últimas <b>48h</b>.
+          Entra en <b>MEMES</b> para ver tarjetas tipo Reddit con memes de las últimas <b>48h</b>.
         </div>
       </div>
 
       <div class="card">
         <div class="cardTitle">Atajos</div>
         <div class="btnRow">
-          <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">Perfil X</a>
-          <a class="btn ghost" href="https://www.reddit.com/r/memes/new/" target="_blank" rel="noreferrer">Reddit /memes</a>
+          <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+            <span class="ms" aria-hidden="true">person</span> Perfil X
+          </a>
+          <a class="btn ghost" href="https://www.reddit.com/r/memes/new/" target="_blank" rel="noreferrer">
+            <span class="ms" aria-hidden="true">forum</span> Reddit /memes
+          </a>
         </div>
       </div>
 
       <div class="card donate">
         <div class="cardTitle">Apoya</div>
-        <a class="btn kofi" href="https://ko-fi.com/" target="_blank" rel="noreferrer">Donar ☕</a>
+        <a class="btn kofi" href="https://ko-fi.com/" target="_blank" rel="noreferrer">
+          <span class="ms" aria-hidden="true">local_cafe</span> Donar
+        </a>
       </div>
     </aside>
 
@@ -95,7 +122,7 @@
       <div class="panel">
         <div class="panelHead">
           <div class="searchWrap">
-            <span class="searchIco" aria-hidden="true">🔎</span>
+            <span class="searchIco" aria-hidden="true"><span class="ms">search</span></span>
             <input id="q" class="search" type="search" placeholder="Buscar…" autocomplete="off" />
           </div>
 
@@ -147,8 +174,8 @@
 
         <div class="panelTabs">
           <div id="tabsView" class="tabs" role="tablist" aria-label="Vista">
-            <button class="tab" type="button" data-view="memes" aria-selected="false">MEMES</button>
-            <button class="tab isActive" type="button" data-view="all" aria-selected="true">Tendencias</button>
+            <button class="tab isActive" type="button" data-view="memes" aria-selected="true">MEMES</button>
+            <button class="tab" type="button" data-view="all" aria-selected="false">Tendencias</button>
             <button class="tab" type="button" data-view="favs" aria-selected="false">Favoritos</button>
           </div>
 
@@ -164,7 +191,6 @@
         <div id="err" class="err hidden" role="alert"></div>
         <div id="empty" class="empty hidden">No hay resultados con estos filtros.</div>
         <div id="list" class="trendList" aria-live="polite"></div>
-
         <div class="panelFoot"></div>
       </div>
     </section>
@@ -188,7 +214,9 @@
     <div class="modalCard">
       <div class="modalHead">
         <div class="modalTitle">Configuración</div>
-        <button id="cfgClose" class="iconBtn" type="button" aria-label="Cerrar">✕</button>
+        <button id="cfgClose" class="iconBtn" type="button" aria-label="Cerrar">
+          <span class="ms" aria-hidden="true">close</span>
+        </button>
       </div>
 
       <div class="modalBody">
@@ -222,21 +250,23 @@
           <input id="cfgTickerSpeed" class="input" type="number" min="12" max="120" value="28" />
         </label>
 
-        <div class="divider"></div>
+        <div class="sep"></div>
 
         <label class="row">
-          <span>Máx memes</span>
+          <span>Máx memes (tarjetas)</span>
           <input id="cfgMemeMaxPosts" class="input" type="number" min="10" max="120" value="45" />
         </label>
 
         <label class="row">
-          <span>Ocultar thumbnails</span>
+          <span>Ocultar media (solo títulos)</span>
           <input id="cfgNoThumbs" type="checkbox" />
         </label>
       </div>
 
       <div class="modalFoot">
-        <button id="cfgSave" class="btn" type="button">Guardar</button>
+        <button id="cfgSave" class="btn" type="button">
+          <span class="ms" aria-hidden="true">save</span> Guardar
+        </button>
       </div>
     </div>
   </div>
