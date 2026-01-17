@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#000000" />
-  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit + tendencias + timeline embebido de X." />
+  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit + tendencias + timeline de X." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
 
   <link rel="manifest" href="./manifest.webmanifest" />
@@ -23,6 +23,16 @@
 </head>
 
 <body>
+  <div id="bootSplash" class="bootSplash" role="status" aria-label="Cargando">
+    <div class="bootInner">
+      <img class="bootLogo" src="./logo_ojo_gif.gif" alt="GlobalEye" />
+      <div class="bootDots" aria-hidden="true">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+      <div class="bootHint">Cargando…</div>
+    </div>
+  </div>
+
   <header class="topbar" role="banner" aria-label="GlobalEye">
     <div class="topbarBanner" aria-hidden="true">
       <img class="topbarBannerImg" src="./banner_ojo.jpg" alt="" decoding="async" fetchpriority="high" />
@@ -34,7 +44,7 @@
         <img class="brandLogo" src="./logo_ojo_png.png" alt="GlobalEye" />
         <div class="brandText">
           <div class="brandTitle">GLOBAL EYE</div>
-          <div class="brandSub">Memes · Tendencias · X timeline</div>
+          <div class="brandSub">Memes · Tendencias · X feed</div>
         </div>
       </div>
 
@@ -55,7 +65,7 @@
           <span class="msr">open_in_new</span><span class="lbl">@GlobalEye_TV</span>
         </a>
 
-        <button id="btnReloadX" class="btn ghost" type="button" title="Recargar timeline de X">
+        <button id="btnReloadX" class="btn ghost" type="button" title="Recargar feed de X">
           <span class="msr">refresh</span><span class="lbl">Feed</span>
         </button>
 
@@ -97,13 +107,19 @@
 
         <div class="filters" aria-label="Filtros">
           <select id="selSource" class="select" title="Fuente memes">
-            <option value="mix" selected>Mix</option>
+            <option value="OJOOJITOOJETE" selected>r/OJOOJITOOJETE</option>
+            <option value="mix">Mix (ES+EN)</option>
+            <option value="memesESP">r/memesESP</option>
+            <option value="memesenespanol">r/memesenespanol</option>
             <option value="memes">r/memes</option>
             <option value="dankmemes">r/dankmemes</option>
             <option value="me_irl">r/me_irl</option>
             <option value="wholesomememes">r/wholesomememes</option>
             <option value="funny">r/funny</option>
+            <option value="custom">Custom…</option>
           </select>
+
+          <input id="subCustom" class="input inputSub hidden" type="text" placeholder="subreddit (sin r/)" spellcheck="false" />
 
           <select id="selSort" class="select" title="Orden">
             <option value="new" selected>New</option>
@@ -130,8 +146,8 @@
       <section id="viewTrends" class="view hidden">
         <div class="sectionTitle">
           <span class="msr">trending_up</span>
-          <span>Tendencias (open data)</span>
-          <span class="muted">· abre búsqueda en X</span>
+          <span>Tendencias / Hashtags (open data)</span>
+          <span class="muted">· +info dentro de cada tarjeta</span>
         </div>
         <div id="trendsList" class="list trends" aria-live="polite"></div>
       </section>
@@ -148,18 +164,23 @@
     <aside class="sideCol">
       <div class="card">
         <div class="cardTitle">
-          <span class="msr">for_you</span><span>Timeline X</span>
+          <span class="msr">for_you</span><span>Feed de X</span>
         </div>
 
         <div id="xTimelineMount" class="xMount"></div>
 
         <div id="xFallback" class="xFallback hidden">
           <div class="xFallbackText">
-            El widget puede estar bloqueado por privacidad/adblock.
+            El widget puede estar bloqueado por privacidad/adblock. La app intentará mostrar un feed alternativo cuando sea posible.
           </div>
-          <a class="btn" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
-            <span class="msr">open_in_new</span><span class="lbl">Abrir perfil</span>
-          </a>
+          <div class="xFallbackActions">
+            <a class="btn" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+              <span class="msr">open_in_new</span><span class="lbl">Abrir perfil</span>
+            </a>
+            <button id="btnXRetry" class="btn ghost" type="button">
+              <span class="msr">refresh</span><span class="lbl">Reintentar</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -169,8 +190,9 @@
         </div>
         <div class="hint">
           Memes: solo posts con imagen/vídeo (sin NSFW).<br />
-          Tendencias: calculadas desde titulares (GDELT).<br />
-          Votos: se guardan localmente (tu navegador).
+          Tendencias: calculadas desde titulares (GDELT) + ejemplos.<br />
+          Votos: se guardan localmente (tu navegador).<br />
+          X: widget oficial + fallback cuando esté bloqueado.
         </div>
       </div>
     </aside>
@@ -231,5 +253,85 @@
       </div>
     </div>
   </div>
+
+  <script>
+    (() => {
+      const sel = document.getElementById("selSource");
+      const input = document.getElementById("subCustom");
+      const KEY = "ge_custom_sub_v1";
+      const optId = "optCustomDyn";
+
+      const btnRetry = document.getElementById("btnXRetry");
+      const btnReloadX = document.getElementById("btnReloadX");
+      if (btnRetry && btnReloadX) btnRetry.addEventListener("click", () => btnReloadX.click());
+
+      function normSub(v){
+        return String(v || "").trim().replace(/^r\//i, "").replace(/\s+/g, "");
+      }
+
+      function ensureOpt(value){
+        const v = normSub(value);
+        if (!v) return null;
+        let opt = document.getElementById(optId);
+        if (!opt){
+          opt = document.createElement("option");
+          opt.id = optId;
+          sel.appendChild(opt);
+        }
+        opt.value = v;
+        opt.textContent = `r/${v} (custom)`;
+        return opt;
+      }
+
+      function showInput(on){
+        if (!input) return;
+        input.classList.toggle("hidden", !on);
+        if (on) setTimeout(() => input.focus(), 0);
+      }
+
+      function applySaved(){
+        try{
+          const saved = localStorage.getItem(KEY);
+          if (saved) ensureOpt(saved);
+        }catch{}
+      }
+
+      function commitCustom(){
+        const v = normSub(input.value);
+        if (!v) return;
+        ensureOpt(v);
+        try{ localStorage.setItem(KEY, v); }catch{}
+        sel.value = v;
+        showInput(false);
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      applySaved();
+
+      if (sel && input){
+        sel.addEventListener("change", () => {
+          if (sel.value === "custom"){
+            showInput(true);
+            try{
+              const saved = localStorage.getItem(KEY) || "";
+              input.value = saved;
+            }catch{}
+          }else{
+            showInput(false);
+          }
+        });
+
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter"){
+            e.preventDefault();
+            commitCustom();
+          }
+        });
+        input.addEventListener("blur", () => {
+          if (!input.classList.contains("hidden")) commitCustom();
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

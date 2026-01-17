@@ -1,22 +1,22 @@
-/* app.js — GlobalEye Memes + Trends + X timeline (FINAL)
+/* app.js — GlobalEye Memes + Trends + X timeline (FINAL+)
    ✅ Compatible con tu index.html actual (IDs: tabMemes/tabTrends/tabFavs, btnRefresh, xTimelineMount, memesList...)
    ✅ Memes: SOLO posts con imagen o vídeo (extracción robusta + fallbacks + onerror visible)
-   ✅ Tendencias: GDELT (open data) con parse seguro (evita "Unexpected token 'Y'")
-   ✅ Timeline X: montaje robusto (sin duplicar script) + fallback si bloqueado
+   ✅ Tendencias: GDELT (open data) con parse seguro + “+INFO” por tarjeta (enlaces + ejemplos)
+   ✅ Timeline X: montaje robusto (sin duplicar script) + fallback RSS (Nitter/proxies) si bloqueado
    ✅ Votos y favoritos persistentes (localStorage)
    ✅ Anti-doble-carga + cleanup (intervalos, listeners) para evitar estados raros en recargas/SW
+   ✅ SIN fugas: listeners dinámicos NO se registran en el cleanup global
 */
 (() => {
   "use strict";
 
   const APP_VERSION = "ge-memes-trends-final";
-  const BUILD_ID = "2026-01-17b";
+  const BUILD_ID = "2026-01-17c";
 
   /* ───────────────────────────── Guard + Cleanup ───────────────────────────── */
   const TAG = `${APP_VERSION}:${BUILD_ID}`;
   try{
     if (window.__GE_APP__?.tag === TAG) return;
-    // Si hay una instancia anterior (recarga parcial/SW), la limpiamos
     if (window.__GE_APP__?.cleanup) {
       try{ window.__GE_APP__.cleanup(); }catch{}
     }
@@ -26,18 +26,18 @@
   const _cleanup = {
     timers: new Set(),
     listeners: [],
-    aborters: new Set()
+    aborters: new Set(),
   };
 
-  function setIntervalSafe(fn, ms){
-    const id = setInterval(fn, ms);
-    _cleanup.timers.add(id);
-    return id;
-  }
-  function setTimeoutSafe(fn, ms){
-    const id = setTimeout(fn, ms);
-    _cleanup.timers.add(id);
-    return id;
+  function trackTimer(id){ _cleanup.timers.add(id); return id; }
+  function untrackTimer(id){ try{ _cleanup.timers.delete(id); }catch{} }
+  function setIntervalSafe(fn, ms){ return trackTimer(setInterval(fn, ms)); }
+  function setTimeoutSafe(fn, ms){ return trackTimer(setTimeout(fn, ms)); }
+  function clearTracked(id){
+    if (id == null) return;
+    try{ clearInterval(id); }catch{}
+    try{ clearTimeout(id); }catch{}
+    untrackTimer(id);
   }
   function clearAllTimers(){
     for (const id of _cleanup.timers){
@@ -50,6 +50,11 @@
     if (!target) return;
     target.addEventListener(type, handler, opts);
     _cleanup.listeners.push([target, type, handler, opts]);
+  }
+  // Para nodos dinámicos: NO registramos en cleanup (evita fugas por re-render)
+  function onDyn(target, type, handler, opts){
+    if (!target) return;
+    target.addEventListener(type, handler, opts);
   }
   function offAll(){
     for (const [t, type, h, opts] of _cleanup.listeners){
@@ -85,9 +90,8 @@
   function setHidden(el, hidden){
     if (!el) return;
     el.classList.toggle("hidden", !!hidden);
+    try{ el.toggleAttribute?.("hidden", !!hidden); }catch{}
   }
-
-  function nowMs(){ return Date.now(); }
 
   function clamp(n, a, b){ n = Number(n); return Math.max(a, Math.min(b, n)); }
 
@@ -120,6 +124,15 @@
       .replaceAll("'","&#039;");
   }
 
+  function safeUrl(u){
+    try{
+      const x = new URL(String(u || ""));
+      return x.toString();
+    }catch{
+      return "";
+    }
+  }
+
   /* ───────────────────────────── Storage ───────────────────────────── */
   const LS_CFG         = "ge_cfg_v1";
   const LS_VOTES       = "ge_votes_v1";
@@ -146,7 +159,8 @@
     everySec: 120,
     maxPosts: 45,
     noThumbs: false,
-    tickerSpeed: 120
+    tickerSpeed: 120,
+    xUser: "GlobalEye_TV",
   }, loadJSON(LS_CFG, {}));
 
   const votes = Object.assign({}, loadJSON(LS_VOTES, {})); // { [id]: -1|0|1 }
@@ -206,7 +220,6 @@
     cfgTickerSpeed: $("#cfgTickerSpeed")
   };
 
-  // Si falta algo crítico, no crasheamos: mostramos error suave
   function softAssertBasics(){
     const missing = [];
     if (!el.memesList) missing.push("#memesList");
@@ -227,7 +240,13 @@
     const ac = new AbortController();
     _cleanup.aborters.add(ac);
     const t = setTimeoutSafe(() => { try{ ac.abort("timeout"); }catch{} }, timeoutMs);
-    return { ac, done: () => { try{ clearTimeout(t); }catch{} _cleanup.aborters.delete(ac); } };
+    return {
+      ac,
+      done: () => {
+        clearTracked(t);
+        try{ _cleanup.aborters.delete(ac); }catch{}
+      }
+    };
   }
 
   async function fetchText(url, timeoutMs=12000){
@@ -238,7 +257,7 @@
         cache: "no-store",
         mode: "cors",
         signal: ac.signal,
-        headers: { "accept": "application/json,text/plain,*/*" }
+        headers: { "accept": "application/json,text/plain,text/xml,*/*" }
       });
       const text = await res.text();
       return { ok: res.ok, status: res.status, text, headers: res.headers, url };
@@ -248,7 +267,6 @@
   }
 
   function stripXssi(text){
-    // Algunas APIs devuelven prefijos anti-JSON-hijacking
     let t = String(text || "");
     if (t.startsWith(")]}',")) t = t.slice(5);
     return t.trim();
@@ -288,7 +306,6 @@
   }
 
   function proxyUrlsFor(url){
-    // Fallbacks best-effort: si alguno devuelve HTML/texto, fetchJsonSmart lo rechaza y pasa al siguiente
     return [
       url,
       `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -298,7 +315,34 @@
   }
 
   /* ───────────────────────────── Memes (Reddit) ───────────────────────────── */
-  const REDDIT_SUBS_MIX = ["memes", "dankmemes", "me_irl", "wholesomememes", "funny"];
+  // Incluye tu subreddit + memes en español (además del mix global).
+  const REDDIT_SUBS_MIX = [
+    "OJOOJITOOJETE",
+    "memesESP",
+    "memesenespanol",
+    "memes",
+    "dankmemes",
+    "me_irl",
+    "wholesomememes",
+    "funny"
+  ];
+
+  function parseSourceValue(v){
+    const raw = String(v || "").trim();
+    if (!raw) return "mix";
+    if (raw === "mix") return "mix";
+
+    // Permite valores tipo "r/xxxx" o URL completa
+    if (/^r\//i.test(raw)) return raw.slice(2);
+    if (/^https?:\/\//i.test(raw)){
+      try{
+        const u = new URL(raw);
+        const m = u.pathname.match(/\/r\/([^/]+)/i);
+        if (m && m[1]) return m[1];
+      }catch{}
+    }
+    return raw;
+  }
 
   function redditEndpoint(sub, sort, limit){
     const s = (sort === "best") ? "new" : sort;
@@ -314,9 +358,7 @@
   function normalizeMediaUrl(u){
     if (!u) return "";
     let s = String(u).replaceAll("&amp;", "&").trim();
-    // imgur gifv -> mp4 (más compatible)
     if (isGifv(s)) s = s.replace(/\.gifv(\?.*)?$/i, ".mp4$1");
-    // fuerza https si viene http
     if (s.startsWith("http://")) s = "https://" + s.slice(7);
     return s;
   }
@@ -344,23 +386,19 @@
   function extractMedia(post){
     if (!post || post.over_18) return null;
 
-    // 1) Video Reddit nativo
     const rv = post?.media?.reddit_video?.fallback_url;
     if (post.is_video && rv){
       return { type: "video", url: normalizeMediaUrl(rv) };
     }
 
-    // 2) Video preview (a veces viene aunque no sea is_video)
     const rvp = post?.preview?.reddit_video_preview?.fallback_url;
     if (rvp){
       return { type: "video", url: normalizeMediaUrl(rvp) };
     }
 
-    // 3) Gallery
     const g = pickGallery(post);
     if (g && (isImgUrl(g) || g.includes("i.redd.it/"))) return { type: "image", url: normalizeMediaUrl(g) };
 
-    // 4) Imagen directa
     const uod = post.url_overridden_by_dest ? normalizeMediaUrl(post.url_overridden_by_dest) : "";
     if (post.post_hint === "image" && uod){
       if (isImgUrl(uod) || uod.includes("i.redd.it/") || uod.includes("i.imgur.com/")) {
@@ -368,13 +406,11 @@
       }
     }
 
-    // 5) Preview image
     const p = pickBestPreview(post);
     if (p && (isImgUrl(p) || p.includes("i.redd.it/") || p.includes("external-preview.redd.it/") || p.includes("preview.redd.it/"))){
       return { type: "image", url: p };
     }
 
-    // 6) URL final con extensión (incluye imgur mp4)
     const url = normalizeMediaUrl(uod || post.url || "");
     if (isImgUrl(url)) return { type: "image", url };
     if (isMp4Url(url)) return { type: "video", url };
@@ -384,9 +420,7 @@
 
   function mapRedditPostToItem(post){
     const media = extractMedia(post);
-    if (!media) {
-      return null; // clave: solo memes con media
-    }
+    if (!media) return null;
 
     const createdMs = Math.floor((post.created_utc || 0) * 1000);
     return {
@@ -419,11 +453,10 @@
     const limit = clamp(cfg.maxPosts || 45, 10, 120);
 
     const sort = (el.selSort?.value || "new");
-    const source = (el.selSource?.value || "mix");
+    const source = parseSourceValue(el.selSource?.value || "mix");
 
     const subs = (source === "mix") ? REDDIT_SUBS_MIX : [source];
 
-    // Pedimos más para filtrar por horas y por “solo media”
     const perSubLimit = clamp(Math.ceil(limit * (source === "mix" ? 1.35 : 2.0)), 25, 100);
 
     const reqs = subs.map(sub => {
@@ -458,7 +491,6 @@
 
     let out = dedupById(items);
 
-    // Orden
     if (sort === "best"){
       out.sort((a,b) => {
         const va = Number(votes[a.id] || 0);
@@ -471,7 +503,6 @@
     }else if (sort === "top"){
       out.sort((a,b) => b.score - a.score);
     }else{
-      // hot: aproximación por score + comentarios + recencia ligera
       out.sort((a,b) => (b.score*0.7 + b.numComments*0.3) - (a.score*0.7 + a.numComments*0.3));
     }
 
@@ -490,8 +521,6 @@
   }
 
   function buildGdeltQuery(){
-    // Evita queries “vacías” o ultra-específicas que a veces provocan respuestas raras
-    // (y por eso el parse seguro es obligatorio)
     return `(news OR viral OR trending OR internet OR meme)`;
   }
 
@@ -510,22 +539,42 @@
       .trim();
   }
 
+  function classifyTrend(s){
+    return /(eleccion|gobierno|presidente|congreso|politic|election|government|parlamento|senado)/i.test(s) ? "Política" :
+      /(futbol|liga|nba|nfl|mlb|deport|sport|champions|uefa|laliga)/i.test(s) ? "Deportes" :
+      /(viral|meme|internet|tiktok|trend|streamer|youtuber|influencer)/i.test(s) ? "Viral" :
+      "Noticias";
+  }
+
   function scoreTrendsFromTitles(titles){
     const counts = new Map();
+    const examples = new Map(); // key -> [title...]
+    const totalTitles = titles.length;
 
-    function bump(k, w=1){
+    function addExample(k, title){
+      if (!k || !title) return;
+      let arr = examples.get(k);
+      if (!arr){
+        arr = [];
+        examples.set(k, arr);
+      }
+      if (arr.length >= 3) return;
+      if (!arr.includes(title)) arr.push(title);
+    }
+
+    function bump(k, w=1, title=""){
       if (!k || k.length < 3) return;
       counts.set(k, (counts.get(k) || 0) + w);
+      addExample(k, title);
     }
 
     for (const title of titles){
       const raw = String(title || "");
       const words0 = raw.split(/\s+/g).map(cleanToken).filter(Boolean);
 
-      // hashtags y @
       for (const w of words0){
-        if (w.startsWith("#") && w.length > 2) bump(w, 4);
-        else if (w.startsWith("@") && w.length > 2) bump(w, 4);
+        if (w.startsWith("#") && w.length > 2) bump(w, 4, raw);
+        else if (w.startsWith("@") && w.length > 2) bump(w, 4, raw);
       }
 
       const words = words0
@@ -533,31 +582,33 @@
         .filter(w => w.length >= 3)
         .filter(w => !STOP.has(w));
 
-      for (const w of words) bump(w, 1);
+      for (const w of words) bump(w, 1, raw);
 
       for (let i=0;i<words.length-1;i++){
         const a = words[i], b = words[i+1];
         if (!a || !b) continue;
-        bump(`${a} ${b}`, 2.2);
+        bump(`${a} ${b}`, 2.2, raw);
       }
       for (let i=0;i<words.length-2;i++){
         const a = words[i], b = words[i+1], c = words[i+2];
         if (!a || !b || !c) continue;
-        bump(`${a} ${b} ${c}`, 3.0);
+        bump(`${a} ${b} ${c}`, 3.0, raw);
       }
     }
 
     const arr = Array.from(counts.entries())
-      .map(([k,score]) => ({ kind: "trend", text: k, score }))
+      .map(([k,score]) => ({
+        kind: "trend",
+        text: k,
+        score,
+        examples: examples.get(k) || [],
+        totalTitles,
+      }))
       .sort((a,b) => b.score - a.score)
       .slice(0, 40);
 
     for (const t of arr){
-      const s = t.text;
-      t.cat =
-        /(eleccion|gobierno|presidente|congreso|politic|election|government)/i.test(s) ? "Política" :
-        /(futbol|liga|nba|nfl|mlb|deport|sport)/i.test(s) ? "Deportes" :
-        /(viral|meme|internet|tiktok|trend)/i.test(s) ? "Viral" : "Noticias";
+      t.cat = classifyTrend(t.text);
       t.id = `trend:${t.text}`;
     }
 
@@ -580,7 +631,6 @@
 
     const url = `${GDELT_DOC}?${params.toString()}`;
 
-    // Normalmente GDELT tiene CORS OK, pero por seguridad hacemos tryUrlsJson con proxies
     const json = await tryUrlsJson(proxyUrlsFor(url), 16000);
 
     const articles = Array.isArray(json?.articles) ? json.articles : [];
@@ -653,6 +703,12 @@
     return String(text || "").toLowerCase().includes(q);
   }
 
+  function openInNew(url){
+    const u = safeUrl(url);
+    if (!u) return;
+    try{ window.open(u, "_blank", "noreferrer"); }catch{}
+  }
+
   /* ───────────────────────────── Render ───────────────────────────── */
   function render(){
     showErr("");
@@ -697,7 +753,7 @@
     btnUp.type = "button";
     btnUp.title = "Upvote";
     btnUp.innerHTML = `<span class="msr">arrow_upward</span>`;
-    on(btnUp, "click", (e) => { e.stopPropagation(); setVote(it.id, v === 1 ? 0 : 1); });
+    onDyn(btnUp, "click", (e) => { e.stopPropagation(); setVote(it.id, v === 1 ? 0 : 1); });
 
     const score = document.createElement("div");
     score.className = "voteScore";
@@ -708,7 +764,7 @@
     btnDown.type = "button";
     btnDown.title = "Downvote";
     btnDown.innerHTML = `<span class="msr">arrow_downward</span>`;
-    on(btnDown, "click", (e) => { e.stopPropagation(); setVote(it.id, v === -1 ? 0 : -1); });
+    onDyn(btnDown, "click", (e) => { e.stopPropagation(); setVote(it.id, v === -1 ? 0 : -1); });
 
     votesCol.appendChild(btnUp);
     votesCol.appendChild(score);
@@ -734,7 +790,6 @@
     const media = document.createElement("div");
     media.className = "mMedia";
 
-    // Si el usuario activó “Ocultar media” en config, dejamos aviso (no “silencio” total)
     if (cfg.noThumbs){
       const hint = document.createElement("div");
       hint.className = "mMediaHint";
@@ -758,9 +813,7 @@
         </a>
       `;
 
-      on(vid, "error", () => {
-        setHidden(fallback, false);
-      });
+      onDyn(vid, "error", () => setHidden(fallback, false));
 
       media.appendChild(vid);
       media.appendChild(fallback);
@@ -771,7 +824,6 @@
       img.decoding = "async";
       img.alt = it.title || "meme";
 
-      // fallback visible si hotlink falla
       const fallback = document.createElement("div");
       fallback.className = "mMediaFail hidden";
       fallback.innerHTML = `
@@ -782,9 +834,8 @@
         </a>
       `;
 
-      on(img, "error", () => {
+      onDyn(img, "error", () => {
         setHidden(fallback, false);
-        // intento suave: si es external-preview, probamos sin parámetros
         try{
           const u = new URL(img.src);
           if (u.hostname.includes("external-preview.redd.it")){
@@ -816,7 +867,7 @@
     favBtn.type = "button";
     favBtn.title = isFav ? "Quitar favorito" : "Favorito";
     favBtn.innerHTML = `<span class="msr">star</span>`;
-    on(favBtn, "click", (e) => { e.stopPropagation(); toggleFav(it); });
+    onDyn(favBtn, "click", (e) => { e.stopPropagation(); toggleFav(it); });
 
     actions.appendChild(favBtn);
 
@@ -831,9 +882,7 @@
     card.appendChild(votesCol);
     card.appendChild(body);
 
-    on(card, "click", () => {
-      if (it.permalink) window.open(it.permalink, "_blank", "noreferrer");
-    });
+    onDyn(card, "click", () => { if (it.permalink) openInNew(it.permalink); });
 
     return card;
   }
@@ -851,13 +900,27 @@
 
     const frag = document.createDocumentFragment();
     let rank = 0;
+
     for (const t of items){
       rank++;
+
       const row = document.createElement("div");
       row.className = "tRow";
+      row.dataset.id = t.id;
 
       const q = encodeURIComponent(t.text);
       const xUrl = `https://x.com/search?q=${q}`;
+      const gUrl = `https://www.google.com/search?q=${q}`;
+      const rUrl = `https://www.reddit.com/search/?q=${q}`;
+      const wUrl = `https://en.wikipedia.org/w/index.php?search=${q}`;
+      const gdeltUrl = `${GDELT_DOC}?${new URLSearchParams({
+        query: t.text,
+        mode: "artlist",
+        format: "json",
+        sort: "datedesc",
+        maxrecords: "50",
+        timespan: gdeltTimespanForHours(Number(el.selRange?.value || 48))
+      }).toString()}`;
 
       row.innerHTML = `
         <div class="tRank">${rank}</div>
@@ -867,19 +930,47 @@
             <span>${escapeHtml(t.cat || "Noticias")}</span>
             <span>score ${Math.round(t.score)}</span>
           </div>
+          <div class="tInfo hidden" data-role="info">
+            <div class="tInfoLinks">
+              <a class="btn ghost" href="${xUrl}" target="_blank" rel="noreferrer"><span class="msr">search</span><span>X</span></a>
+              <a class="btn ghost" href="${gUrl}" target="_blank" rel="noreferrer"><span class="msr">public</span><span>Google</span></a>
+              <a class="btn ghost" href="${rUrl}" target="_blank" rel="noreferrer"><span class="msr">forum</span><span>Reddit</span></a>
+              <a class="btn ghost" href="${wUrl}" target="_blank" rel="noreferrer"><span class="msr">menu_book</span><span>Wiki</span></a>
+              <a class="btn ghost" href="${gdeltUrl}" target="_blank" rel="noreferrer"><span class="msr">dataset</span><span>GDELT</span></a>
+            </div>
+            ${
+              (t.examples && t.examples.length)
+                ? `<div class="tExamples">
+                     <div class="tExamplesTitle">Ejemplos recientes</div>
+                     <ul>${t.examples.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+                   </div>`
+                : `<div class="tExamples muted">Sin ejemplos (esta tendencia viene por señales globales).</div>`
+            }
+          </div>
         </div>
         <div class="tActions">
+          <button class="iconBtn" type="button" data-act="info" title="+Info"><span class="msr">info</span></button>
           <a class="iconBtn" href="${xUrl}" target="_blank" rel="noreferrer" title="Buscar en X">
             <span class="msr">search</span>
           </a>
-          <button class="iconBtn ${favs[t.id] ? "isOn" : ""}" type="button" title="${favs[t.id] ? "Quitar favorito" : "Favorito"}">
+          <button class="iconBtn ${favs[t.id] ? "isOn" : ""}" type="button" data-act="fav" title="${favs[t.id] ? "Quitar favorito" : "Favorito"}">
             <span class="msr">star</span>
           </button>
         </div>
       `;
 
-      const btnFav = row.querySelector("button");
-      on(btnFav, "click", (e) => {
+      const btnInfo = row.querySelector('[data-act="info"]');
+      const btnFav = row.querySelector('[data-act="fav"]');
+      const infoBox = row.querySelector('[data-role="info"]');
+
+      onDyn(btnInfo, "click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const hidden = infoBox?.classList.contains("hidden");
+        setHidden(infoBox, !hidden);
+      });
+
+      onDyn(btnFav, "click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         toggleFav(t);
@@ -887,6 +978,7 @@
 
       frag.appendChild(row);
     }
+
     list.appendChild(frag);
   }
 
@@ -923,14 +1015,14 @@
             <a class="iconBtn" href="${xUrl}" target="_blank" rel="noreferrer" title="Buscar en X">
               <span class="msr">search</span>
             </a>
-            <button class="iconBtn isOn" type="button" title="Quitar favorito">
+            <button class="iconBtn isOn" type="button" title="Quitar favorito" data-act="unfav">
               <span class="msr">star</span>
             </button>
           </div>
         `;
 
-        const btn = row.querySelector("button");
-        on(btn, "click", (e) => {
+        const btn = row.querySelector('[data-act="unfav"]');
+        onDyn(btn, "click", (e) => {
           e.preventDefault();
           e.stopPropagation();
           delete favs[it.id];
@@ -963,7 +1055,6 @@
       delete favs[id];
     }else{
       const copy = Object.assign({}, item);
-      // Normalizamos trends
       if (copy.kind === "trend"){
         copy.id = copy.id || `trend:${copy.text}`;
       }
@@ -1002,7 +1093,7 @@
     if (ui.ticker) renderTicker();
   }
 
-  /* ───────────────────────────── X Timeline ───────────────────────────── */
+  /* ───────────────────────────── X Timeline + Fallback RSS ───────────────────────────── */
   function twitterScriptAlreadyPresent(){
     return !!$$('script[src*="platform.twitter.com/widgets.js"]').length;
   }
@@ -1022,12 +1113,10 @@
   async function ensureTwitterWidgets(){
     if (window.twttr?.widgets?.load) return true;
 
-    // Si ya existe el script (en tu index.html), esperamos a que cargue
     if (twitterScriptAlreadyPresent()){
       return await waitForTwttr(4500);
     }
 
-    // Si no existe, lo inyectamos
     return await new Promise((resolve) => {
       const s = document.createElement("script");
       s.src = "https://platform.twitter.com/widgets.js";
@@ -1038,12 +1127,115 @@
     });
   }
 
+  function getXUser(){
+    const u = String(cfg.xUser || "GlobalEye_TV").trim().replace(/^@/,"");
+    return u || "GlobalEye_TV";
+  }
+
+  async function loadXFallbackFeed(){
+    if (!el.xFallback) return;
+    const user = getXUser();
+
+    const instances = [
+      `https://nitter.net/${user}/rss`,
+      `https://nitter.poast.org/${user}/rss`,
+      `https://nitter.lacontrevoie.fr/${user}/rss`,
+      `https://nitter.privacydev.net/${user}/rss`,
+    ];
+
+    const urls = [];
+    for (const u of instances){
+      urls.push(...proxyUrlsFor(u));
+    }
+
+    let xmlText = "";
+    let lastErr = null;
+
+    for (const u of urls){
+      try{
+        const r = await fetchText(u, 12000);
+        const t = String(r.text || "").trim();
+        if (!t) throw new Error("vacío");
+        if (!t.includes("<rss") && !t.includes("<feed")) throw new Error("no-rss");
+        xmlText = t;
+        break;
+      }catch(err){
+        lastErr = err;
+      }
+    }
+
+    if (!xmlText){
+      el.xFallback.innerHTML = `
+        <div class="xFallbackBox">
+          <div class="xFallbackTitle">Timeline no disponible</div>
+          <div class="xFallbackMsg">El embed de X está bloqueado (o no cargó). Puedes abrir el perfil directamente.</div>
+          <div class="xFallbackActions">
+            <a class="btn" href="https://x.com/${escapeHtml(user)}" target="_blank" rel="noreferrer">
+              <span class="msr">open_in_new</span><span>Abrir @${escapeHtml(user)}</span>
+            </a>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    let items = [];
+    try{
+      const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+      const rssItems = Array.from(doc.querySelectorAll("item")).slice(0, 8);
+      items = rssItems.map(it => ({
+        title: it.querySelector("title")?.textContent || "",
+        link: it.querySelector("link")?.textContent || "",
+        date: it.querySelector("pubDate")?.textContent || ""
+      })).filter(x => x.title || x.link);
+      if (!items.length){
+        // Atom
+        const entries = Array.from(doc.querySelectorAll("entry")).slice(0, 8);
+        items = entries.map(e => ({
+          title: e.querySelector("title")?.textContent || "",
+          link: e.querySelector("link")?.getAttribute("href") || "",
+          date: e.querySelector("updated")?.textContent || e.querySelector("published")?.textContent || ""
+        })).filter(x => x.title || x.link);
+      }
+    }catch{
+      items = [];
+    }
+
+    const userUrl = `https://x.com/${user}`;
+
+    el.xFallback.innerHTML = `
+      <div class="xFallbackBox">
+        <div class="xFallbackTitle">Feed alternativo (RSS)</div>
+        <div class="xFallbackMsg">Si el embed de X está bloqueado, aquí tienes un resumen reciente.</div>
+        <div class="xFallbackActions">
+          <a class="btn" href="${escapeHtml(userUrl)}" target="_blank" rel="noreferrer">
+            <span class="msr">open_in_new</span><span>Abrir @${escapeHtml(user)}</span>
+          </a>
+        </div>
+        ${
+          items.length
+            ? `<ul class="xFallbackList">
+                ${items.map(x => `
+                  <li>
+                    <a href="${escapeHtml(x.link || userUrl)}" target="_blank" rel="noreferrer">
+                      ${escapeHtml(x.title).slice(0, 140)}
+                    </a>
+                  </li>
+                `).join("")}
+              </ul>`
+            : `<div class="xFallbackMsg muted">No se pudieron extraer items del RSS.</div>`
+        }
+      </div>
+    `;
+  }
+
   async function mountXTimeline(){
     if (!el.xTimelineMount) return;
 
     setHidden(el.xFallback, true);
 
-    // Remontamos el anchor (imprescindible para regenerar iframe)
+    const user = getXUser();
+
     el.xTimelineMount.innerHTML = `
       <a class="twitter-timeline"
          data-theme="dark"
@@ -1051,14 +1243,15 @@
          data-chrome="noheader nofooter noborders transparent"
          data-tweet-limit="6"
          data-height="680"
-         href="https://twitter.com/GlobalEye_TV">
-         Tweets by @GlobalEye_TV
+         href="https://twitter.com/${escapeHtml(user)}">
+         Tweets by @${escapeHtml(user)}
       </a>
     `;
 
     const ok = await ensureTwitterWidgets();
     if (!ok){
       setHidden(el.xFallback, false);
+      await loadXFallbackFeed().catch(()=>{});
       return;
     }
 
@@ -1066,15 +1259,16 @@
       await window.twttr.widgets.load(el.xTimelineMount);
     }catch{}
 
-    // Doble intento (widgets a veces “se duerme” con async/defer)
     setTimeoutSafe(async () => {
       try{ await window.twttr.widgets.load(el.xTimelineMount); }catch{}
     }, 900);
 
-    // Si no aparece iframe, fallback
-    setTimeoutSafe(() => {
+    setTimeoutSafe(async () => {
       const iframe = el.xTimelineMount.querySelector("iframe");
-      if (!iframe) setHidden(el.xFallback, false);
+      if (!iframe){
+        setHidden(el.xFallback, false);
+        await loadXFallbackFeed().catch(()=>{});
+      }
     }, 1800);
   }
 
@@ -1088,9 +1282,7 @@
     if (el.cfgTickerSpeed) el.cfgTickerSpeed.value = String(clamp(cfg.tickerSpeed || 120, 30, 300));
     setHidden(el.cfgModal, false);
   }
-  function closeCfg(){
-    setHidden(el.cfgModal, true);
-  }
+  function closeCfg(){ setHidden(el.cfgModal, true); }
   function saveCfg(){
     cfg.auto = !!el.cfgAuto?.checked;
     cfg.everySec = clamp(el.cfgEvery?.value || 120, 35, 900);
@@ -1126,10 +1318,9 @@
   }
 
   function scheduleAuto(){
-    if (refreshTimer){
-      try{ clearInterval(refreshTimer); }catch{}
-      refreshTimer = null;
-    }
+    clearTracked(refreshTimer);
+    refreshTimer = null;
+
     if (!cfg.auto) return;
 
     const ms = clamp(cfg.everySec || 120, 35, 900) * 1000;
@@ -1137,10 +1328,8 @@
   }
 
   function startUpdatedLabelTicker(){
-    if (labelTimer){
-      try{ clearInterval(labelTimer); }catch{}
-      labelTimer = null;
-    }
+    clearTracked(labelTimer);
+    labelTimer = null;
     labelTimer = setIntervalSafe(() => { setLastUpdatedLabel(); }, 5000);
   }
 
@@ -1164,22 +1353,18 @@
     if (el.lastUpdated) el.lastUpdated.textContent = "Actualizando…";
 
     try{
-      // 1) Memes
       const memesRes = await fetchMemes();
       state.memes = memesRes.items || [];
       cacheSave(LS_CACHE_MEMES, state.memes);
 
-      // Errores parciales (no rompen si hay datos)
       if (memesRes.errs?.length && !state.memes.length){
         showErr(`Memes: ${memesRes.errs.join(" | ")}`);
       }
 
-      // 2) Trends
       try{
         state.trends = await fetchTrends();
         cacheSave(LS_CACHE_TR, state.trends);
       }catch(err){
-        // si falla trends, usamos cache si existe
         const cached = cacheLoad(LS_CACHE_TR);
         if (cached?.payload?.length){
           state.trends = cached.payload;
@@ -1197,7 +1382,6 @@
       render();
       if (ui.ticker) renderTicker();
     }catch(err){
-      // Cache fallback memes si todo falla
       const cachedM = cacheLoad(LS_CACHE_MEMES);
       if (cachedM?.payload?.length){
         state.memes = cachedM.payload;
@@ -1231,13 +1415,8 @@
       applyUIFlags();
     });
 
-    on(el.btnTicker, "click", () => {
-      setTickerVisible(!ui.ticker);
-    });
-
-    on(el.tickerClose, "click", () => {
-      setTickerVisible(false);
-    });
+    on(el.btnTicker, "click", () => setTickerVisible(!ui.ticker));
+    on(el.tickerClose, "click", () => setTickerVisible(false));
 
     on(el.btnConfig, "click", openCfg);
     on(el.cfgClose, "click", closeCfg);
@@ -1245,13 +1424,11 @@
 
     on(el.cfgModal, "click", (e) => { if (e.target === el.cfgModal) closeCfg(); });
 
-    // Filtros/búsqueda
     on(el.q, "input", render);
     on(el.selSource, "change", refreshAll);
     on(el.selSort, "change", refreshAll);
     on(el.selRange, "change", refreshAll);
 
-    // ESC cierra modal
     on(window, "keydown", (e) => {
       if (e.key === "Escape" && el.cfgModal && !el.cfgModal.classList.contains("hidden")){
         closeCfg();
@@ -1267,31 +1444,60 @@
     }catch{}
   }
 
+  /* ───────────────────────────── Splash (opcional, no rompe si no existe) ───────────────────────────── */
+  function handleOptionalSplashMinMs(minMs=5000){
+    const splash = pickFirst("#splash", "#bootSplash", "#loadingSplash");
+    if (!splash) return { done: () => {} };
+
+    const start = Date.now();
+    let finished = false;
+
+    function hide(){
+      if (finished) return;
+      finished = true;
+      splash.classList.add("hidden");
+      try{ splash.setAttribute("aria-hidden","true"); }catch{}
+    }
+
+    // Nunca antes del mínimo
+    const t = setTimeoutSafe(() => hide(), minMs);
+
+    return {
+      done: () => {
+        const elapsed = Date.now() - start;
+        const remain = Math.max(0, minMs - elapsed);
+        clearTracked(t);
+        setTimeoutSafe(() => hide(), remain);
+      }
+    };
+  }
+
   /* ───────────────────────────── Init ───────────────────────────── */
   function init(){
+    const splash = handleOptionalSplashMinMs(5000);
+
     setNetLabel();
     applyUIFlags();
     startUpdatedLabelTicker();
 
-    // Vista inicial
     setActiveTab(ui.view || "memes");
 
-    // Timeline X
     mountXTimeline().catch(()=>{});
 
-    // Arranque: si hay cache, pinta rápido antes de red
     const cachedM = cacheLoad(LS_CACHE_MEMES);
-    if (cachedM?.payload?.length){
-      state.memes = cachedM.payload;
-    }
+    if (cachedM?.payload?.length) state.memes = cachedM.payload;
+
     const cachedT = cacheLoad(LS_CACHE_TR);
-    if (cachedT?.payload?.length){
-      state.trends = cachedT.payload;
-    }
+    if (cachedT?.payload?.length) state.trends = cachedT.payload;
+
     render();
 
-    // Red
-    refreshAll().catch(()=>{});
+    refreshAll().finally(() => {
+      splash.done();
+    }).catch(() => {
+      splash.done();
+    });
+
     scheduleAuto();
     registerSW();
   }

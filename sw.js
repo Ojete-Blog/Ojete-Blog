@@ -1,11 +1,10 @@
 /* sw.js — GlobalEye Memes+Trends (GitHub Pages hardened) */
 "use strict";
 
-const SW_VERSION = "ge-memes-trends-sw-1";
+const SW_VERSION = "ge-memes-trends-sw-2";
 const CACHE_CORE = `${SW_VERSION}::core`;
 const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
 
-// Archivos "core" (shell). Mantén nombres exactos.
 const CORE = [
   "./",
   "./index.html",
@@ -19,11 +18,10 @@ const CORE = [
   "./banner_ojo.jpg"
 ];
 
-// Query params típicos de cache-bust / tracking
 const STRIP_QS = [
   "v","cb","_","__tnp","__ge","__ts",
   "utm_source","utm_medium","utm_campaign","utm_term","utm_content",
-  "source","view" // para que el shell no se duplique por ?view=...
+  "source","view"
 ];
 
 function normalizeCacheKey(reqOrUrl){
@@ -44,8 +42,8 @@ function isHtml(req){
 function isCorePath(urlObj){
   const path = urlObj.pathname;
   return CORE.some(p => {
-    const a = p.replace("./","/");    // "/index.html"
-    const b = p.replace("./","");     // "index.html"
+    const a = p.replace("./","/");
+    const b = p.replace("./","");
     return path.endsWith(a) || path.endsWith("/"+b) || path.endsWith(b);
   });
 }
@@ -71,9 +69,9 @@ async function cacheMatchNormalized(cacheName, reqOrUrl){
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     try{
+      await caches.delete(CACHE_CORE).catch(()=>{});
       const cache = await caches.open(CACHE_CORE);
 
-      // Precarga “core” intentando evitar cache del navegador
       await Promise.all(CORE.map(async (p) => {
         try{
           const req = new Request(p, { cache: "reload" });
@@ -130,13 +128,11 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // Solo mismo origen (GitHub Pages)
   if (url.origin !== self.location.origin) return;
 
   const html = isHtml(req);
   const core = isCorePath(url);
 
-  // 1) HTML: network-first para NO quedarte pegado con index viejo
   if (html) {
     event.respondWith((async () => {
       try{
@@ -157,7 +153,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2) Core assets: stale-while-revalidate
   if (core) {
     event.respondWith((async () => {
       const cached = await cacheMatchNormalized(CACHE_CORE, req);
@@ -177,7 +172,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3) Runtime: stale-while-revalidate con key normalizada (evita duplicados por query)
   event.respondWith((async () => {
     const cached = await cacheMatchNormalized(CACHE_RUNTIME, req);
 
