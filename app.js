@@ -1,27 +1,86 @@
 /* app.js — GlobalEye Memes + Trends + X timeline (FINAL)
-   - Header sin duplicados (solo render/estilos correctos desde HTML/CSS)
-   - Memes: SOLO posts con imagen o vídeo (filtrado robusto)
-   - Trends: GDELT (open data) con parse seguro (evita "Unexpected token 'Y'")
-   - Timeline X: montaje robusto + botón recargar + fallback si bloqueado
-   - Votos y favoritos persistentes (localStorage)
+   ✅ Compatible con tu index.html actual (IDs: tabMemes/tabTrends/tabFavs, btnRefresh, xTimelineMount, memesList...)
+   ✅ Memes: SOLO posts con imagen o vídeo (extracción robusta + fallbacks + onerror visible)
+   ✅ Tendencias: GDELT (open data) con parse seguro (evita "Unexpected token 'Y'")
+   ✅ Timeline X: montaje robusto (sin duplicar script) + fallback si bloqueado
+   ✅ Votos y favoritos persistentes (localStorage)
+   ✅ Anti-doble-carga + cleanup (intervalos, listeners) para evitar estados raros en recargas/SW
 */
-
 (() => {
   "use strict";
 
   const APP_VERSION = "ge-memes-trends-final";
-  const BUILD_ID = "2026-01-17a";
+  const BUILD_ID = "2026-01-17b";
 
-  // Guard anti doble carga
+  /* ───────────────────────────── Guard + Cleanup ───────────────────────────── */
+  const TAG = `${APP_VERSION}:${BUILD_ID}`;
   try{
-    const tag = `${APP_VERSION}:${BUILD_ID}`;
-    if (window.__GE_APP__?.tag === tag) return;
-    window.__GE_APP__ = { tag };
+    if (window.__GE_APP__?.tag === TAG) return;
+    // Si hay una instancia anterior (recarga parcial/SW), la limpiamos
+    if (window.__GE_APP__?.cleanup) {
+      try{ window.__GE_APP__.cleanup(); }catch{}
+    }
+    window.__GE_APP__ = { tag: TAG, cleanup: null };
   }catch{}
 
-  /* --------------------------- Helpers DOM --------------------------- */
+  const _cleanup = {
+    timers: new Set(),
+    listeners: [],
+    aborters: new Set()
+  };
+
+  function setIntervalSafe(fn, ms){
+    const id = setInterval(fn, ms);
+    _cleanup.timers.add(id);
+    return id;
+  }
+  function setTimeoutSafe(fn, ms){
+    const id = setTimeout(fn, ms);
+    _cleanup.timers.add(id);
+    return id;
+  }
+  function clearAllTimers(){
+    for (const id of _cleanup.timers){
+      try{ clearInterval(id); }catch{}
+      try{ clearTimeout(id); }catch{}
+    }
+    _cleanup.timers.clear();
+  }
+  function on(target, type, handler, opts){
+    if (!target) return;
+    target.addEventListener(type, handler, opts);
+    _cleanup.listeners.push([target, type, handler, opts]);
+  }
+  function offAll(){
+    for (const [t, type, h, opts] of _cleanup.listeners){
+      try{ t.removeEventListener(type, h, opts); }catch{}
+    }
+    _cleanup.listeners.length = 0;
+  }
+  function abortAll(){
+    for (const ac of _cleanup.aborters){
+      try{ ac.abort("cleanup"); }catch{}
+    }
+    _cleanup.aborters.clear();
+  }
+
+  window.__GE_APP__.cleanup = () => {
+    abortAll();
+    offAll();
+    clearAllTimers();
+  };
+
+  /* ───────────────────────────── Helpers DOM ───────────────────────────── */
   const $ = (sel, root=document) => root.querySelector(sel);
   const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+  function pickFirst(...sels){
+    for (const s of sels){
+      const el = $(s);
+      if (el) return el;
+    }
+    return null;
+  }
 
   function setHidden(el, hidden){
     if (!el) return;
@@ -30,10 +89,18 @@
 
   function nowMs(){ return Date.now(); }
 
-  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+  function clamp(n, a, b){ n = Number(n); return Math.max(a, Math.min(b, n)); }
 
-  function formatAgo(tsMs){
-    const s = Math.floor((Date.now() - tsMs) / 1000);
+  function fmtNum(n){
+    n = Number(n);
+    if (!Number.isFinite(n)) return "0";
+    if (n >= 1e6) return `${(n/1e6).toFixed(1).replace(/\.0$/,"")}M`;
+    if (n >= 1e3) return `${(n/1e3).toFixed(1).replace(/\.0$/,"")}K`;
+    return String(n);
+  }
+
+  function formatAgoMs(deltaMs){
+    const s = Math.floor(deltaMs / 1000);
     if (s < 10) return "ahora";
     if (s < 60) return `${s}s`;
     const m = Math.floor(s/60);
@@ -44,18 +111,22 @@
     return `${d}d`;
   }
 
-  function fmtNum(n){
-    if (!Number.isFinite(n)) return "0";
-    if (n >= 1e6) return `${(n/1e6).toFixed(1).replace(/\.0$/,"")}M`;
-    if (n >= 1e3) return `${(n/1e3).toFixed(1).replace(/\.0$/,"")}K`;
-    return String(n);
+  function escapeHtml(s){
+    return String(s ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
   }
 
-  /* --------------------------- Storage --------------------------- */
-  const LS_CFG = "ge_cfg_v1";
-  const LS_VOTES = "ge_votes_v1";
-  const LS_FAVS = "ge_favs_v1";
-  const LS_UI = "ge_ui_v1";
+  /* ───────────────────────────── Storage ───────────────────────────── */
+  const LS_CFG         = "ge_cfg_v1";
+  const LS_VOTES       = "ge_votes_v1";
+  const LS_FAVS        = "ge_favs_v1";
+  const LS_UI          = "ge_ui_v1";
+  const LS_CACHE_MEMES = "ge_cache_memes_v1";
+  const LS_CACHE_TR    = "ge_cache_trends_v1";
 
   function loadJSON(key, fallback){
     try{
@@ -79,14 +150,15 @@
   }, loadJSON(LS_CFG, {}));
 
   const votes = Object.assign({}, loadJSON(LS_VOTES, {})); // { [id]: -1|0|1 }
-  const favs = Object.assign({}, loadJSON(LS_FAVS, {}));   // { [id]: item }
+  const favs  = Object.assign({}, loadJSON(LS_FAVS, {}));  // { [id]: item }
+
   const ui = Object.assign({
     view: "memes",
     compact: false,
     ticker: false
   }, loadJSON(LS_UI, {}));
 
-  /* --------------------------- Elements --------------------------- */
+  /* ───────────────────────────── Elements (multi-compat) ───────────────────────────── */
   const el = {
     tabMemes: $("#tabMemes"),
     tabTrends: $("#tabTrends"),
@@ -117,11 +189,12 @@
     trendsList: $("#trendsList"),
     favsList: $("#favsList"),
 
-    xTimelineMount: $("#xTimelineMount"),
-    xFallback: $("#xFallback"),
+    xTimelineMount: pickFirst("#xTimelineMount", "#timelineMount"),
+    xFallback: pickFirst("#xFallback"),
 
     tickerBar: $("#tickerBar"),
     tickerTrack: $("#tickerTrack"),
+    tickerClose: $("#tickerClose"),
 
     cfgModal: $("#cfgModal"),
     cfgClose: $("#cfgClose"),
@@ -133,11 +206,28 @@
     cfgTickerSpeed: $("#cfgTickerSpeed")
   };
 
-  /* --------------------------- Networking (robusto) --------------------------- */
-  function mkAbort(ms){
+  // Si falta algo crítico, no crasheamos: mostramos error suave
+  function softAssertBasics(){
+    const missing = [];
+    if (!el.memesList) missing.push("#memesList");
+    if (!el.trendsList) missing.push("#trendsList");
+    if (!el.favsList) missing.push("#favsList");
+    if (!el.viewMemes) missing.push("#viewMemes");
+    if (!el.viewTrends) missing.push("#viewTrends");
+    if (!el.viewFavs) missing.push("#viewFavs");
+    if (missing.length){
+      showErr(`Faltan contenedores en HTML: ${missing.join(", ")} (revisa index.html).`);
+      return false;
+    }
+    return true;
+  }
+
+  /* ───────────────────────────── Networking (robusto) ───────────────────────────── */
+  function mkAbort(timeoutMs){
     const ac = new AbortController();
-    const t = setTimeout(() => ac.abort("timeout"), ms);
-    return { ac, done: () => clearTimeout(t) };
+    _cleanup.aborters.add(ac);
+    const t = setTimeoutSafe(() => { try{ ac.abort("timeout"); }catch{} }, timeoutMs);
+    return { ac, done: () => { try{ clearTimeout(t); }catch{} _cleanup.aborters.delete(ac); } };
   }
 
   async function fetchText(url, timeoutMs=12000){
@@ -151,25 +241,36 @@
         headers: { "accept": "application/json,text/plain,*/*" }
       });
       const text = await res.text();
-      return { ok: res.ok, status: res.status, text, headers: res.headers };
+      return { ok: res.ok, status: res.status, text, headers: res.headers, url };
     }finally{
       done();
     }
   }
 
+  function stripXssi(text){
+    // Algunas APIs devuelven prefijos anti-JSON-hijacking
+    let t = String(text || "");
+    if (t.startsWith(")]}',")) t = t.slice(5);
+    return t.trim();
+  }
+
   function safeJsonParse(text){
-    try{ return JSON.parse(text); }catch{ return null; }
+    try{ return JSON.parse(stripXssi(text)); }catch{ return null; }
   }
 
   async function fetchJsonSmart(url, timeoutMs=12000){
     const r = await fetchText(url, timeoutMs);
     const json = safeJsonParse(r.text);
+
     if (!json){
-      const snippet = String(r.text || "").slice(0, 180).replace(/\s+/g, " ").trim();
-      throw new Error(`Respuesta no-JSON (${r.status}). ${snippet || "Vacía"}`);
+      const snippet = String(r.text || "")
+        .slice(0, 220)
+        .replace(/\s+/g, " ")
+        .trim();
+      throw new Error(`Respuesta no-JSON (${r.status}) en ${new URL(url).hostname}: ${snippet || "vacía"}`);
     }
     if (!r.ok){
-      throw new Error(`HTTP ${r.status}`);
+      throw new Error(`HTTP ${r.status} en ${new URL(url).hostname}`);
     }
     return json;
   }
@@ -183,21 +284,11 @@
         lastErr = err;
       }
     }
-    throw lastErr || new Error("No se pudo cargar");
-  }
-
-  /* --------------------------- Reddit (memes) --------------------------- */
-  const REDDIT_SUBS_MIX = ["memes", "dankmemes", "me_irl", "wholesomememes"];
-
-  function redditEndpoint(sub, sort, limit){
-    const s = (sort === "best") ? "new" : sort;
-    let url = `https://www.reddit.com/r/${encodeURIComponent(sub)}/${encodeURIComponent(s)}.json?limit=${encodeURIComponent(limit)}&raw_json=1`;
-    if (s === "top") url += `&t=day`;
-    return url;
+    throw lastErr || new Error("No se pudo cargar JSON");
   }
 
   function proxyUrlsFor(url){
-    // Fallbacks best-effort por si Reddit bloquea CORS o hay rate limit
+    // Fallbacks best-effort: si alguno devuelve HTML/texto, fetchJsonSmart lo rechaza y pasa al siguiente
     return [
       url,
       `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -206,20 +297,34 @@
     ];
   }
 
-  function isImgUrl(u){
-    return /\.(png|jpe?g|gif|webp)$/i.test(u || "");
+  /* ───────────────────────────── Memes (Reddit) ───────────────────────────── */
+  const REDDIT_SUBS_MIX = ["memes", "dankmemes", "me_irl", "wholesomememes", "funny"];
+
+  function redditEndpoint(sub, sort, limit){
+    const s = (sort === "best") ? "new" : sort;
+    let url = `https://www.reddit.com/r/${encodeURIComponent(sub)}/${encodeURIComponent(s)}.json?limit=${encodeURIComponent(limit)}&raw_json=1`;
+    if (s === "top") url += `&t=day`;
+    return url;
   }
-  function isMp4Url(u){
-    return /\.mp4(\?|$)/i.test(u || "");
+
+  function isImgUrl(u){ return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(u || ""); }
+  function isMp4Url(u){ return /\.mp4(\?|$)/i.test(u || ""); }
+  function isGifv(u){ return /\.gifv(\?|$)/i.test(u || ""); }
+
+  function normalizeMediaUrl(u){
+    if (!u) return "";
+    let s = String(u).replaceAll("&amp;", "&").trim();
+    // imgur gifv -> mp4 (más compatible)
+    if (isGifv(s)) s = s.replace(/\.gifv(\?.*)?$/i, ".mp4$1");
+    // fuerza https si viene http
+    if (s.startsWith("http://")) s = "https://" + s.slice(7);
+    return s;
   }
 
   function pickBestPreview(post){
     const img = post?.preview?.images?.[0];
-    if (!img) return null;
     const src = img?.source?.url || null;
-    if (!src) return null;
-    // raw_json=1 suele venir limpio, pero por si acaso:
-    return src.replaceAll("&amp;", "&");
+    return src ? normalizeMediaUrl(src) : null;
   }
 
   function pickGallery(post){
@@ -228,11 +333,10 @@
     if (!keys.length) return null;
     const k = keys[0];
     const m = post.media_metadata[k];
-    // Prefer u from "s"
     const u = m?.s?.u || m?.s?.gif || null;
-    if (u) return String(u).replaceAll("&amp;", "&");
-    // Si no, intentamos construir i.redd.it
-    const mime = m?.m || "image/jpg";
+    if (u) return normalizeMediaUrl(u);
+
+    const mime = m?.m || "image/jpeg";
     const ext = mime.includes("/") ? mime.split("/")[1].replace("jpeg","jpg") : "jpg";
     return `https://i.redd.it/${k}.${ext}`;
   }
@@ -240,31 +344,38 @@
   function extractMedia(post){
     if (!post || post.over_18) return null;
 
-    // Reddit vídeo nativo
-    if (post.is_video && post.media && post.media.reddit_video && post.media.reddit_video.fallback_url){
-      const v = String(post.media.reddit_video.fallback_url).replaceAll("&amp;", "&");
-      return { type: "video", url: v };
+    // 1) Video Reddit nativo
+    const rv = post?.media?.reddit_video?.fallback_url;
+    if (post.is_video && rv){
+      return { type: "video", url: normalizeMediaUrl(rv) };
     }
 
-    // Gallery
+    // 2) Video preview (a veces viene aunque no sea is_video)
+    const rvp = post?.preview?.reddit_video_preview?.fallback_url;
+    if (rvp){
+      return { type: "video", url: normalizeMediaUrl(rvp) };
+    }
+
+    // 3) Gallery
     const g = pickGallery(post);
-    if (g && (isImgUrl(g) || g.includes("i.redd.it/"))) return { type: "image", url: g };
+    if (g && (isImgUrl(g) || g.includes("i.redd.it/"))) return { type: "image", url: normalizeMediaUrl(g) };
 
-    // Imagen directa (post_hint)
-    const uod = post.url_overridden_by_dest ? String(post.url_overridden_by_dest) : "";
+    // 4) Imagen directa
+    const uod = post.url_overridden_by_dest ? normalizeMediaUrl(post.url_overridden_by_dest) : "";
     if (post.post_hint === "image" && uod){
-      const u = uod.replaceAll("&amp;", "&");
-      if (isImgUrl(u) || u.includes("i.redd.it/") || u.includes("i.imgur.com/")) return { type: "image", url: u };
+      if (isImgUrl(uod) || uod.includes("i.redd.it/") || uod.includes("i.imgur.com/")) {
+        return { type: "image", url: uod };
+      }
     }
 
-    // Preview
+    // 5) Preview image
     const p = pickBestPreview(post);
-    if (p && (isImgUrl(p) || p.includes("i.redd.it/") || p.includes("external-preview.redd.it/"))) {
+    if (p && (isImgUrl(p) || p.includes("i.redd.it/") || p.includes("external-preview.redd.it/") || p.includes("preview.redd.it/"))){
       return { type: "image", url: p };
     }
 
-    // URL directa con extensión
-    const url = (uod || post.url || "").toString().replaceAll("&amp;", "&");
+    // 6) URL final con extensión (incluye imgur mp4)
+    const url = normalizeMediaUrl(uod || post.url || "");
     if (isImgUrl(url)) return { type: "image", url };
     if (isMp4Url(url)) return { type: "video", url };
 
@@ -273,15 +384,18 @@
 
   function mapRedditPostToItem(post){
     const media = extractMedia(post);
-    if (!media) return null;
+    if (!media) {
+      return null; // clave: solo memes con media
+    }
 
     const createdMs = Math.floor((post.created_utc || 0) * 1000);
     return {
-      id: post.id,
-      fullId: post.name,
-      title: post.title || "",
-      subreddit: post.subreddit || "",
-      author: post.author || "",
+      kind: "meme",
+      id: String(post.id || ""),
+      fullId: String(post.name || ""),
+      title: String(post.title || ""),
+      subreddit: String(post.subreddit || ""),
+      author: String(post.author || ""),
       permalink: post.permalink ? `https://www.reddit.com${post.permalink}` : "",
       createdMs,
       score: Number(post.score || 0),
@@ -301,21 +415,21 @@
   }
 
   async function fetchMemes(){
-    const rangeH = Number(el.selRange.value || 48);
-    const limit = clamp(Number(cfg.maxPosts || 45), 10, 120);
+    const rangeH = Number(el.selRange?.value || 48);
+    const limit = clamp(cfg.maxPosts || 45, 10, 120);
 
-    const sort = (el.selSort.value || "new");
-    const source = (el.selSource.value || "mix");
+    const sort = (el.selSort?.value || "new");
+    const source = (el.selSource?.value || "mix");
 
-    const subs = source === "mix" ? REDDIT_SUBS_MIX : [source];
+    const subs = (source === "mix") ? REDDIT_SUBS_MIX : [source];
 
-    // Pedimos algo más de lo que mostraremos para poder filtrar por horas y media
-    const perSubLimit = clamp(Math.ceil(limit * (source === "mix" ? 1.25 : 2.0)), 25, 100);
+    // Pedimos más para filtrar por horas y por “solo media”
+    const perSubLimit = clamp(Math.ceil(limit * (source === "mix" ? 1.35 : 2.0)), 25, 100);
 
     const reqs = subs.map(sub => {
       const url = redditEndpoint(sub, sort, perSubLimit);
       const urls = proxyUrlsFor(url);
-      return tryUrlsJson(urls, 12000).then(json => ({ sub, json })).catch(err => ({ sub, err }));
+      return tryUrlsJson(urls, 14000).then(json => ({ sub, json })).catch(err => ({ sub, err }));
     });
 
     const results = await Promise.all(reqs);
@@ -357,7 +471,7 @@
     }else if (sort === "top"){
       out.sort((a,b) => b.score - a.score);
     }else{
-      // hot: mantenemos aproximación por score+recencia
+      // hot: aproximación por score + comentarios + recencia ligera
       out.sort((a,b) => (b.score*0.7 + b.numComments*0.3) - (a.score*0.7 + a.numComments*0.3));
     }
 
@@ -366,7 +480,7 @@
     return { items: out, errs };
   }
 
-  /* --------------------------- GDELT (tendencias) --------------------------- */
+  /* ───────────────────────────── Tendencias (GDELT) ───────────────────────────── */
   const GDELT_DOC = "https://api.gdeltproject.org/api/v2/doc/doc";
 
   function gdeltTimespanForHours(h){
@@ -376,49 +490,9 @@
   }
 
   function buildGdeltQuery(){
-    // Queremos titulares recientes, sin requerir keywords raras.
-    // Fuente país/idioma opcional se podría añadir, pero para asegurar resultados:
-    // Usamos un query "news" + filtros suaves.
-    // (Si pones solo operadores y la query queda demasiado "vacía", GDELT puede responder con texto.)
-    return `(news OR viral OR trending OR meme OR internet)`;
-  }
-
-  async function fetchTrends(){
-    const rangeH = Number(el.selRange.value || 48);
-    const timespan = gdeltTimespanForHours(rangeH);
-
-    const query = buildGdeltQuery();
-    const params = new URLSearchParams({
-      query,
-      mode: "artlist",
-      format: "json",
-      sort: "datedesc",
-      maxrecords: "200",
-      timespan
-    });
-
-    const url = `${GDELT_DOC}?${params.toString()}`;
-
-    // GDELT normalmente tiene CORS abierto, pero hacemos parse seguro:
-    const json = await fetchJsonSmart(url, 14000);
-
-    const articles = Array.isArray(json?.articles) ? json.articles : [];
-    const cutoff = Date.now() - (rangeH * 3600 * 1000);
-
-    const titles = articles
-      .filter(a => a && a.title)
-      .filter(a => {
-        const dt = a.seendate || a.datetime || a.date || a.sourceCountry; // fallback
-        // Si no hay fecha, no filtramos por fecha (para no quedarnos a 0)
-        if (!a.seendate && !a.datetime && !a.date) return true;
-        const t = Date.parse(a.seendate || a.datetime || a.date);
-        if (!Number.isFinite(t)) return true;
-        return t >= cutoff;
-      })
-      .map(a => String(a.title));
-
-    const trends = scoreTrendsFromTitles(titles);
-    return trends;
+    // Evita queries “vacías” o ultra-específicas que a veces provocan respuestas raras
+    // (y por eso el parse seguro es obligatorio)
+    return `(news OR viral OR trending OR internet OR meme)`;
   }
 
   const STOP = new Set([
@@ -429,7 +503,7 @@
   ]);
 
   function cleanToken(t){
-    return t
+    return String(t || "")
       .toLowerCase()
       .replace(/[“”"’'`´]/g, "")
       .replace(/[^\p{L}\p{N}_#@]+/gu, "")
@@ -459,10 +533,8 @@
         .filter(w => w.length >= 3)
         .filter(w => !STOP.has(w));
 
-      // unigram
       for (const w of words) bump(w, 1);
 
-      // bigram / trigram (frases)
       for (let i=0;i<words.length-1;i++){
         const a = words[i], b = words[i+1];
         if (!a || !b) continue;
@@ -475,67 +547,113 @@
       }
     }
 
-    // ranking
     const arr = Array.from(counts.entries())
-      .map(([k,score]) => ({ text: k, score }))
+      .map(([k,score]) => ({ kind: "trend", text: k, score }))
       .sort((a,b) => b.score - a.score)
       .slice(0, 40);
 
-    // categoría simple
     for (const t of arr){
       const s = t.text;
       t.cat =
         /(eleccion|gobierno|presidente|congreso|politic|election|government)/i.test(s) ? "Política" :
         /(futbol|liga|nba|nfl|mlb|deport|sport)/i.test(s) ? "Deportes" :
         /(viral|meme|internet|tiktok|trend)/i.test(s) ? "Viral" : "Noticias";
+      t.id = `trend:${t.text}`;
     }
 
     return arr;
   }
 
-  /* --------------------------- Render --------------------------- */
-  let state = {
+  async function fetchTrends(){
+    const rangeH = Number(el.selRange?.value || 48);
+    const timespan = gdeltTimespanForHours(rangeH);
+    const query = buildGdeltQuery();
+
+    const params = new URLSearchParams({
+      query,
+      mode: "artlist",
+      format: "json",
+      sort: "datedesc",
+      maxrecords: "250",
+      timespan
+    });
+
+    const url = `${GDELT_DOC}?${params.toString()}`;
+
+    // Normalmente GDELT tiene CORS OK, pero por seguridad hacemos tryUrlsJson con proxies
+    const json = await tryUrlsJson(proxyUrlsFor(url), 16000);
+
+    const articles = Array.isArray(json?.articles) ? json.articles : [];
+    const cutoff = Date.now() - (rangeH * 3600 * 1000);
+
+    const titles = articles
+      .filter(a => a && a.title)
+      .filter(a => {
+        const dt = a.seendate || a.datetime || a.date || "";
+        if (!dt) return true;
+        const t = Date.parse(dt);
+        if (!Number.isFinite(t)) return true;
+        return t >= cutoff;
+      })
+      .map(a => String(a.title));
+
+    return scoreTrendsFromTitles(titles);
+  }
+
+  /* ───────────────────────────── State ───────────────────────────── */
+  const state = {
     memes: [],
-    trends: []
+    trends: [],
+    lastRefreshMs: 0
   };
 
+  /* ───────────────────────────── UI helpers ───────────────────────────── */
   function showErr(msg){
-    el.errBanner.textContent = msg || "Error";
+    if (!el.errBanner) return;
+    el.errBanner.textContent = msg || "";
     setHidden(el.errBanner, !msg);
   }
   function showEmpty(on){
+    if (!el.emptyBanner) return;
     setHidden(el.emptyBanner, !on);
   }
 
   function applyUIFlags(){
-    document.documentElement.toggleAttribute("data-compact", !!ui.compact);
     document.documentElement.setAttribute("data-compact", ui.compact ? "1" : "0");
-
     document.documentElement.setAttribute("data-noThumbs", cfg.noThumbs ? "1" : "0");
 
-    el.tickerBar.style.setProperty("--tickerSpeed", `${clamp(Number(cfg.tickerSpeed||120),30,300)}s`);
-    setHidden(el.tickerBar, !ui.ticker);
+    if (el.tickerBar){
+      el.tickerBar.style.setProperty("--tickerSpeed", `${clamp(cfg.tickerSpeed || 120, 30, 300)}s`);
+      setHidden(el.tickerBar, !ui.ticker);
+    }
 
-    el.btnCompact.classList.toggle("isOn", !!ui.compact);
-    el.btnTicker.classList.toggle("isOn", !!ui.ticker);
+    el.btnCompact?.classList.toggle("isOn", !!ui.compact);
+    el.btnTicker?.classList.toggle("isOn", !!ui.ticker);
   }
 
   function setActiveTab(view){
     ui.view = view;
     saveJSON(LS_UI, ui);
 
-    el.tabMemes.classList.toggle("isActive", view === "memes");
-    el.tabTrends.classList.toggle("isActive", view === "trends");
-    el.tabFavs.classList.toggle("isActive", view === "favs");
+    el.tabMemes?.classList.toggle("isActive", view === "memes");
+    el.tabTrends?.classList.toggle("isActive", view === "trends");
+    el.tabFavs?.classList.toggle("isActive", view === "favs");
 
     setHidden(el.viewMemes, view !== "memes");
     setHidden(el.viewTrends, view !== "trends");
     setHidden(el.viewFavs, view !== "favs");
 
-    // Re-render vista activa (por si cambia)
     render();
+    if (ui.ticker) renderTicker();
   }
 
+  function passesSearch(text){
+    const q = (el.q?.value || "").trim().toLowerCase();
+    if (!q) return true;
+    return String(text || "").toLowerCase().includes(q);
+  }
+
+  /* ───────────────────────────── Render ───────────────────────────── */
   function render(){
     showErr("");
     showEmpty(false);
@@ -545,25 +663,22 @@
     else renderFavs();
   }
 
-  function passesSearch(text){
-    const q = (el.q.value || "").trim().toLowerCase();
-    if (!q) return true;
-    return String(text || "").toLowerCase().includes(q);
-  }
-
   function renderMemes(){
     const list = el.memesList;
+    if (!list) return;
     list.innerHTML = "";
 
-    const items = state.memes.filter(it => passesSearch(it.title));
+    const items = (state.memes || []).filter(it => passesSearch(it.title));
     if (!items.length){
       showEmpty(true);
       return;
     }
 
+    const frag = document.createDocumentFragment();
     for (const it of items){
-      list.appendChild(renderMemeCard(it));
+      frag.appendChild(renderMemeCard(it));
     }
+    list.appendChild(frag);
   }
 
   function renderMemeCard(it){
@@ -582,7 +697,7 @@
     btnUp.type = "button";
     btnUp.title = "Upvote";
     btnUp.innerHTML = `<span class="msr">arrow_upward</span>`;
-    btnUp.addEventListener("click", (e) => { e.stopPropagation(); setVote(it.id, v === 1 ? 0 : 1); });
+    on(btnUp, "click", (e) => { e.stopPropagation(); setVote(it.id, v === 1 ? 0 : 1); });
 
     const score = document.createElement("div");
     score.className = "voteScore";
@@ -593,7 +708,7 @@
     btnDown.type = "button";
     btnDown.title = "Downvote";
     btnDown.innerHTML = `<span class="msr">arrow_downward</span>`;
-    btnDown.addEventListener("click", (e) => { e.stopPropagation(); setVote(it.id, v === -1 ? 0 : -1); });
+    on(btnDown, "click", (e) => { e.stopPropagation(); setVote(it.id, v === -1 ? 0 : -1); });
 
     votesCol.appendChild(btnUp);
     votesCol.appendChild(score);
@@ -607,9 +722,9 @@
     meta.innerHTML = `
       <span>r/${escapeHtml(it.subreddit)}</span>
       <span class="mDot">•</span>
-      <span>${formatAgo(it.createdMs)}</span>
+      <span>${escapeHtml(formatAgoMs(Math.max(0, Date.now() - (it.createdMs||0))))}</span>
       <span class="mDot">•</span>
-      <a href="${it.permalink}" target="_blank" rel="noreferrer">Abrir</a>
+      <a href="${escapeHtml(it.permalink)}" target="_blank" rel="noreferrer">Abrir</a>
     `;
 
     const title = document.createElement("div");
@@ -619,22 +734,68 @@
     const media = document.createElement("div");
     media.className = "mMedia";
 
-    if (it.mediaType === "video"){
+    // Si el usuario activó “Ocultar media” en config, dejamos aviso (no “silencio” total)
+    if (cfg.noThumbs){
+      const hint = document.createElement("div");
+      hint.className = "mMediaHint";
+      hint.innerHTML = `<span class="msr">visibility_off</span><span>Media oculta (Config)</span>`;
+      media.appendChild(hint);
+    }else if (it.mediaType === "video"){
       const vid = document.createElement("video");
       vid.src = it.mediaUrl;
       vid.controls = true;
       vid.playsInline = true;
       vid.preload = "metadata";
       vid.muted = true;
+
+      const fallback = document.createElement("div");
+      fallback.className = "mMediaFail hidden";
+      fallback.innerHTML = `
+        <span class="msr">error</span>
+        <span>No se pudo cargar el vídeo.</span>
+        <a class="btn ghost" href="${escapeHtml(it.permalink)}" target="_blank" rel="noreferrer">
+          <span class="msr">open_in_new</span><span>Abrir</span>
+        </a>
+      `;
+
+      on(vid, "error", () => {
+        setHidden(fallback, false);
+      });
+
       media.appendChild(vid);
+      media.appendChild(fallback);
     }else{
       const img = document.createElement("img");
       img.src = it.mediaUrl;
       img.loading = "lazy";
       img.decoding = "async";
       img.alt = it.title || "meme";
-      img.referrerPolicy = "no-referrer";
+
+      // fallback visible si hotlink falla
+      const fallback = document.createElement("div");
+      fallback.className = "mMediaFail hidden";
+      fallback.innerHTML = `
+        <span class="msr">broken_image</span>
+        <span>No se pudo cargar la imagen.</span>
+        <a class="btn ghost" href="${escapeHtml(it.permalink)}" target="_blank" rel="noreferrer">
+          <span class="msr">open_in_new</span><span>Abrir</span>
+        </a>
+      `;
+
+      on(img, "error", () => {
+        setHidden(fallback, false);
+        // intento suave: si es external-preview, probamos sin parámetros
+        try{
+          const u = new URL(img.src);
+          if (u.hostname.includes("external-preview.redd.it")){
+            u.search = "";
+            img.src = u.toString();
+          }
+        }catch{}
+      });
+
       media.appendChild(img);
+      media.appendChild(fallback);
     }
 
     const foot = document.createElement("div");
@@ -655,10 +816,7 @@
     favBtn.type = "button";
     favBtn.title = isFav ? "Quitar favorito" : "Favorito";
     favBtn.innerHTML = `<span class="msr">star</span>`;
-    favBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      toggleFav(it);
-    });
+    on(favBtn, "click", (e) => { e.stopPropagation(); toggleFav(it); });
 
     actions.appendChild(favBtn);
 
@@ -673,8 +831,7 @@
     card.appendChild(votesCol);
     card.appendChild(body);
 
-    // click en tarjeta abre permalink
-    card.addEventListener("click", () => {
+    on(card, "click", () => {
       if (it.permalink) window.open(it.permalink, "_blank", "noreferrer");
     });
 
@@ -683,14 +840,16 @@
 
   function renderTrends(){
     const list = el.trendsList;
+    if (!list) return;
     list.innerHTML = "";
 
-    const items = state.trends.filter(it => passesSearch(it.text));
+    const items = (state.trends || []).filter(it => passesSearch(it.text));
     if (!items.length){
       showEmpty(true);
       return;
     }
 
+    const frag = document.createDocumentFragment();
     let rank = 0;
     for (const t of items){
       rank++;
@@ -713,34 +872,47 @@
           <a class="iconBtn" href="${xUrl}" target="_blank" rel="noreferrer" title="Buscar en X">
             <span class="msr">search</span>
           </a>
+          <button class="iconBtn ${favs[t.id] ? "isOn" : ""}" type="button" title="${favs[t.id] ? "Quitar favorito" : "Favorito"}">
+            <span class="msr">star</span>
+          </button>
         </div>
       `;
 
-      list.appendChild(row);
+      const btnFav = row.querySelector("button");
+      on(btnFav, "click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFav(t);
+      });
+
+      frag.appendChild(row);
     }
+    list.appendChild(frag);
   }
 
   function renderFavs(){
     const list = el.favsList;
+    if (!list) return;
     list.innerHTML = "";
 
     const items = Object.values(favs || {}).filter(Boolean);
-
     const filtered = items.filter(it => passesSearch(it.title || it.text || ""));
     if (!filtered.length){
       showEmpty(true);
       return;
     }
 
-    // Orden: más reciente primero
     filtered.sort((a,b) => (b.createdMs||0) - (a.createdMs||0));
 
+    const frag = document.createDocumentFragment();
     for (const it of filtered){
       if (it.kind === "trend"){
         const row = document.createElement("div");
         row.className = "tRow";
+
         const q = encodeURIComponent(it.text);
         const xUrl = `https://x.com/search?q=${q}`;
+
         row.innerHTML = `
           <div class="tRank">★</div>
           <div class="tMain">
@@ -756,59 +928,58 @@
             </button>
           </div>
         `;
-        row.querySelector("button")?.addEventListener("click", () => {
+
+        const btn = row.querySelector("button");
+        on(btn, "click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
           delete favs[it.id];
           saveJSON(LS_FAVS, favs);
           renderFavs();
+          if (ui.ticker) renderTicker();
         });
-        list.appendChild(row);
+
+        frag.appendChild(row);
       }else{
-        // Meme fav
-        list.appendChild(renderMemeCard(it));
+        frag.appendChild(renderMemeCard(it));
       }
     }
+    list.appendChild(frag);
   }
 
-  function escapeHtml(s){
-    return String(s || "")
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-
-  /* --------------------------- Votos / Favoritos --------------------------- */
+  /* ───────────────────────────── Votes / Favs ───────────────────────────── */
   function setVote(id, val){
     votes[id] = val;
     saveJSON(LS_VOTES, votes);
     render();
-
-    // ticker puede usar "best"
     if (ui.ticker) renderTicker();
   }
 
   function toggleFav(item){
-    const id = item.id || item.text;
+    const id = item?.id || item?.text;
     if (!id) return;
 
     if (favs[id]){
       delete favs[id];
     }else{
-      // Guardamos una copia ligera para que "Favoritos" renderice aunque no se haya fetcheado luego
       const copy = Object.assign({}, item);
+      // Normalizamos trends
+      if (copy.kind === "trend"){
+        copy.id = copy.id || `trend:${copy.text}`;
+      }
       favs[id] = copy;
     }
     saveJSON(LS_FAVS, favs);
     render();
+    if (ui.ticker) renderTicker();
   }
 
-  /* --------------------------- Ticker --------------------------- */
+  /* ───────────────────────────── Ticker ───────────────────────────── */
   function renderTicker(){
     const track = el.tickerTrack;
+    if (!track) return;
     track.innerHTML = "";
 
-    // Elegimos contenido según vista
     let text = "";
     if (ui.view === "trends" && state.trends.length){
       text = state.trends.slice(0, 18).map(t => `• ${t.text}`).join("   ");
@@ -824,88 +995,108 @@
     track.appendChild(run);
   }
 
-  /* --------------------------- X Timeline --------------------------- */
-  let twLoaded = false;
-  let twLoading = null;
+  function setTickerVisible(on){
+    ui.ticker = !!on;
+    saveJSON(LS_UI, ui);
+    applyUIFlags();
+    if (ui.ticker) renderTicker();
+  }
 
-  function loadTwitterWidgets(){
-    if (twLoaded) return Promise.resolve(true);
-    if (twLoading) return twLoading;
+  /* ───────────────────────────── X Timeline ───────────────────────────── */
+  function twitterScriptAlreadyPresent(){
+    return !!$$('script[src*="platform.twitter.com/widgets.js"]').length;
+  }
 
-    twLoading = new Promise((resolve) => {
-      // Si ya está (por cache o algo)
-      if (window.twttr && window.twttr.widgets){
-        twLoaded = true;
-        resolve(true);
-        return;
-      }
+  function waitForTwttr(ms=3500){
+    const start = Date.now();
+    return new Promise((resolve) => {
+      const tick = () => {
+        if (window.twttr?.widgets?.load) return resolve(true);
+        if (Date.now() - start >= ms) return resolve(false);
+        setTimeoutSafe(tick, 120);
+      };
+      tick();
+    });
+  }
 
+  async function ensureTwitterWidgets(){
+    if (window.twttr?.widgets?.load) return true;
+
+    // Si ya existe el script (en tu index.html), esperamos a que cargue
+    if (twitterScriptAlreadyPresent()){
+      return await waitForTwttr(4500);
+    }
+
+    // Si no existe, lo inyectamos
+    return await new Promise((resolve) => {
       const s = document.createElement("script");
       s.src = "https://platform.twitter.com/widgets.js";
       s.async = true;
-      s.onload = () => {
-        twLoaded = true;
-        resolve(true);
-      };
+      s.onload = () => resolve(!!window.twttr?.widgets?.load);
       s.onerror = () => resolve(false);
       document.head.appendChild(s);
     });
-
-    return twLoading;
   }
 
   async function mountXTimeline(){
+    if (!el.xTimelineMount) return;
+
     setHidden(el.xFallback, true);
 
-    // Re-montamos anchor (widget necesita el markup base)
+    // Remontamos el anchor (imprescindible para regenerar iframe)
     el.xTimelineMount.innerHTML = `
       <a class="twitter-timeline"
          data-theme="dark"
          data-dnt="true"
          data-chrome="noheader nofooter noborders transparent"
          data-tweet-limit="6"
+         data-height="680"
          href="https://twitter.com/GlobalEye_TV">
          Tweets by @GlobalEye_TV
       </a>
     `;
 
-    const ok = await loadTwitterWidgets();
+    const ok = await ensureTwitterWidgets();
     if (!ok){
       setHidden(el.xFallback, false);
       return;
     }
 
     try{
-      if (window.twttr && window.twttr.widgets){
-        await window.twttr.widgets.load(el.xTimelineMount);
-      }
+      await window.twttr.widgets.load(el.xTimelineMount);
     }catch{}
 
-    // Comprobación: si no aparece iframe, mostramos fallback
-    setTimeout(() => {
+    // Doble intento (widgets a veces “se duerme” con async/defer)
+    setTimeoutSafe(async () => {
+      try{ await window.twttr.widgets.load(el.xTimelineMount); }catch{}
+    }, 900);
+
+    // Si no aparece iframe, fallback
+    setTimeoutSafe(() => {
       const iframe = el.xTimelineMount.querySelector("iframe");
       if (!iframe) setHidden(el.xFallback, false);
     }, 1800);
   }
 
-  /* --------------------------- Config UI --------------------------- */
+  /* ───────────────────────────── Config modal ───────────────────────────── */
   function openCfg(){
-    el.cfgAuto.checked = !!cfg.auto;
-    el.cfgEvery.value = String(clamp(Number(cfg.everySec||120), 35, 900));
-    el.cfgMaxPosts.value = String(clamp(Number(cfg.maxPosts||45), 10, 120));
-    el.cfgNoThumbs.checked = !!cfg.noThumbs;
-    el.cfgTickerSpeed.value = String(clamp(Number(cfg.tickerSpeed||120), 30, 300));
+    if (!el.cfgModal) return;
+    if (el.cfgAuto) el.cfgAuto.checked = !!cfg.auto;
+    if (el.cfgEvery) el.cfgEvery.value = String(clamp(cfg.everySec || 120, 35, 900));
+    if (el.cfgMaxPosts) el.cfgMaxPosts.value = String(clamp(cfg.maxPosts || 45, 10, 120));
+    if (el.cfgNoThumbs) el.cfgNoThumbs.checked = !!cfg.noThumbs;
+    if (el.cfgTickerSpeed) el.cfgTickerSpeed.value = String(clamp(cfg.tickerSpeed || 120, 30, 300));
     setHidden(el.cfgModal, false);
   }
   function closeCfg(){
     setHidden(el.cfgModal, true);
   }
   function saveCfg(){
-    cfg.auto = !!el.cfgAuto.checked;
-    cfg.everySec = clamp(Number(el.cfgEvery.value||120), 35, 900);
-    cfg.maxPosts = clamp(Number(el.cfgMaxPosts.value||45), 10, 120);
-    cfg.noThumbs = !!el.cfgNoThumbs.checked;
-    cfg.tickerSpeed = clamp(Number(el.cfgTickerSpeed.value||120), 30, 300);
+    cfg.auto = !!el.cfgAuto?.checked;
+    cfg.everySec = clamp(el.cfgEvery?.value || 120, 35, 900);
+    cfg.maxPosts = clamp(el.cfgMaxPosts?.value || 45, 10, 120);
+    cfg.noThumbs = !!el.cfgNoThumbs?.checked;
+    cfg.tickerSpeed = clamp(el.cfgTickerSpeed?.value || 120, 30, 300);
 
     saveJSON(LS_CFG, cfg);
     applyUIFlags();
@@ -914,114 +1105,161 @@
     closeCfg();
   }
 
-  /* --------------------------- Refresh (memes + trends) --------------------------- */
+  /* ───────────────────────────── Refresh ───────────────────────────── */
   let refreshTimer = null;
+  let labelTimer = null;
   let refreshing = false;
+
+  function setNetLabel(){
+    if (!el.netStatus) return;
+    el.netStatus.textContent = navigator.onLine ? "Online" : "Offline";
+  }
+
+  function setLastUpdatedLabel(){
+    if (!el.lastUpdated) return;
+    if (!state.lastRefreshMs){
+      el.lastUpdated.textContent = "—";
+      return;
+    }
+    const ago = formatAgoMs(Date.now() - state.lastRefreshMs);
+    el.lastUpdated.textContent = (ago === "ahora") ? "Ahora" : `hace ${ago}`;
+  }
+
+  function scheduleAuto(){
+    if (refreshTimer){
+      try{ clearInterval(refreshTimer); }catch{}
+      refreshTimer = null;
+    }
+    if (!cfg.auto) return;
+
+    const ms = clamp(cfg.everySec || 120, 35, 900) * 1000;
+    refreshTimer = setIntervalSafe(() => { refreshAll().catch(()=>{}); }, ms);
+  }
+
+  function startUpdatedLabelTicker(){
+    if (labelTimer){
+      try{ clearInterval(labelTimer); }catch{}
+      labelTimer = null;
+    }
+    labelTimer = setIntervalSafe(() => { setLastUpdatedLabel(); }, 5000);
+  }
+
+  function cacheSave(key, payload){
+    saveJSON(key, { ts: Date.now(), payload });
+  }
+  function cacheLoad(key){
+    const c = loadJSON(key, null);
+    if (!c || !c.payload) return null;
+    return c;
+  }
 
   async function refreshAll(){
     if (refreshing) return;
-    refreshing = true;
+    if (!softAssertBasics()) return;
 
+    refreshing = true;
     showErr("");
     showEmpty(false);
 
-    el.lastUpdated.textContent = "Actualizando…";
+    if (el.lastUpdated) el.lastUpdated.textContent = "Actualizando…";
 
     try{
       // 1) Memes
       const memesRes = await fetchMemes();
       state.memes = memesRes.items || [];
+      cacheSave(LS_CACHE_MEMES, state.memes);
 
-      // si hay errores parciales de subreddits, los mostramos suave (pero no rompemos)
-      if (memesRes.errs && memesRes.errs.length){
-        // NO lo marcamos como fallo total si tenemos memes.
-        if (!state.memes.length){
-          showErr(`Memes: ${memesRes.errs.join(" | ")}`);
-        }
+      // Errores parciales (no rompen si hay datos)
+      if (memesRes.errs?.length && !state.memes.length){
+        showErr(`Memes: ${memesRes.errs.join(" | ")}`);
       }
 
       // 2) Trends
       try{
         state.trends = await fetchTrends();
+        cacheSave(LS_CACHE_TR, state.trends);
       }catch(err){
-        // si falla trends, no rompemos memes
-        if (ui.view === "trends"){
-          showErr(`Tendencias: ${err.message || err}`);
+        // si falla trends, usamos cache si existe
+        const cached = cacheLoad(LS_CACHE_TR);
+        if (cached?.payload?.length){
+          state.trends = cached.payload;
+          if (ui.view === "trends"){
+            showErr(`Tendencias: fallo de red, usando cache (${formatAgoMs(Date.now()-cached.ts)}).`);
+          }
+        }else{
+          if (ui.view === "trends") showErr(`Tendencias: ${err.message || err}`);
+          state.trends = [];
         }
-        state.trends = state.trends || [];
       }
 
-      el.lastUpdated.textContent = formatAgo(Date.now()) === "ahora" ? "Ahora" : `hace ${formatAgo(Date.now())}`;
+      state.lastRefreshMs = Date.now();
+      setLastUpdatedLabel();
       render();
-
       if (ui.ticker) renderTicker();
     }catch(err){
-      showErr(err?.message || String(err));
-      el.lastUpdated.textContent = "—";
+      // Cache fallback memes si todo falla
+      const cachedM = cacheLoad(LS_CACHE_MEMES);
+      if (cachedM?.payload?.length){
+        state.memes = cachedM.payload;
+        showErr(`Fallo de red, usando cache (${formatAgoMs(Date.now()-cachedM.ts)}).`);
+        render();
+        if (ui.ticker) renderTicker();
+      }else{
+        showErr(err?.message || String(err));
+      }
+      if (el.lastUpdated) el.lastUpdated.textContent = "—";
     }finally{
       refreshing = false;
     }
   }
 
-  function scheduleAuto(){
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = null;
-    if (!cfg.auto) return;
-
-    const ms = clamp(Number(cfg.everySec||120), 35, 900) * 1000;
-    refreshTimer = setInterval(() => {
-      refreshAll().catch(()=>{});
-    }, ms);
-  }
-
-  /* --------------------------- Events --------------------------- */
+  /* ───────────────────────────── Events ───────────────────────────── */
   function bind(){
-    window.addEventListener("online", () => { el.netStatus.textContent = "Online"; });
-    window.addEventListener("offline", () => { el.netStatus.textContent = "Offline"; });
+    on(window, "online", setNetLabel);
+    on(window, "offline", setNetLabel);
 
-    el.tabMemes.addEventListener("click", () => setActiveTab("memes"));
-    el.tabTrends.addEventListener("click", () => setActiveTab("trends"));
-    el.tabFavs.addEventListener("click", () => setActiveTab("favs"));
+    on(el.tabMemes, "click", () => setActiveTab("memes"));
+    on(el.tabTrends, "click", () => setActiveTab("trends"));
+    on(el.tabFavs, "click", () => setActiveTab("favs"));
 
-    el.btnRefresh.addEventListener("click", () => refreshAll());
-    el.btnReloadX.addEventListener("click", () => mountXTimeline());
+    on(el.btnRefresh, "click", () => refreshAll());
+    on(el.btnReloadX, "click", () => mountXTimeline());
 
-    el.btnCompact.addEventListener("click", () => {
+    on(el.btnCompact, "click", () => {
       ui.compact = !ui.compact;
       saveJSON(LS_UI, ui);
       applyUIFlags();
     });
 
-    el.btnTicker.addEventListener("click", () => {
-      ui.ticker = !ui.ticker;
-      saveJSON(LS_UI, ui);
-      applyUIFlags();
-      if (ui.ticker) renderTicker();
+    on(el.btnTicker, "click", () => {
+      setTickerVisible(!ui.ticker);
     });
 
-    el.btnConfig.addEventListener("click", () => openCfg());
-    el.cfgClose.addEventListener("click", () => closeCfg());
-    el.cfgSave.addEventListener("click", () => { saveCfg(); scheduleAuto(); });
-
-    el.cfgModal.addEventListener("click", (e) => {
-      if (e.target === el.cfgModal) closeCfg();
+    on(el.tickerClose, "click", () => {
+      setTickerVisible(false);
     });
+
+    on(el.btnConfig, "click", openCfg);
+    on(el.cfgClose, "click", closeCfg);
+    on(el.cfgSave, "click", () => { saveCfg(); scheduleAuto(); });
+
+    on(el.cfgModal, "click", (e) => { if (e.target === el.cfgModal) closeCfg(); });
 
     // Filtros/búsqueda
-    el.q.addEventListener("input", () => render());
-    el.selSource.addEventListener("change", () => refreshAll());
-    el.selSort.addEventListener("change", () => refreshAll());
-    el.selRange.addEventListener("change", () => refreshAll());
+    on(el.q, "input", render);
+    on(el.selSource, "change", refreshAll);
+    on(el.selSort, "change", refreshAll);
+    on(el.selRange, "change", refreshAll);
 
     // ESC cierra modal
-    window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !el.cfgModal.classList.contains("hidden")){
+    on(window, "keydown", (e) => {
+      if (e.key === "Escape" && el.cfgModal && !el.cfgModal.classList.contains("hidden")){
         closeCfg();
       }
     });
   }
 
-  /* --------------------------- SW (opcional) --------------------------- */
+  /* ───────────────────────────── SW (opcional) ───────────────────────────── */
   function registerSW(){
     try{
       if (!("serviceWorker" in navigator)) return;
@@ -1029,26 +1267,32 @@
     }catch{}
   }
 
-  /* --------------------------- Init --------------------------- */
+  /* ───────────────────────────── Init ───────────────────────────── */
   function init(){
-    // UI flags
-    document.documentElement.setAttribute("data-compact", ui.compact ? "1" : "0");
-    document.documentElement.setAttribute("data-noThumbs", cfg.noThumbs ? "1" : "0");
-
-    // estado inicial
-    setActiveTab(ui.view || "memes");
+    setNetLabel();
     applyUIFlags();
+    startUpdatedLabelTicker();
 
-    // config defaults
-    scheduleAuto();
+    // Vista inicial
+    setActiveTab(ui.view || "memes");
 
-    // timeline X
+    // Timeline X
     mountXTimeline().catch(()=>{});
 
-    // arranque
-    refreshAll().catch(()=>{});
+    // Arranque: si hay cache, pinta rápido antes de red
+    const cachedM = cacheLoad(LS_CACHE_MEMES);
+    if (cachedM?.payload?.length){
+      state.memes = cachedM.payload;
+    }
+    const cachedT = cacheLoad(LS_CACHE_TR);
+    if (cachedT?.payload?.length){
+      state.trends = cachedT.payload;
+    }
+    render();
 
-    // SW
+    // Red
+    refreshAll().catch(()=>{});
+    scheduleAuto();
     registerSW();
   }
 

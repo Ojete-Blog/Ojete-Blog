@@ -30,55 +30,59 @@
     </div>
 
     <div class="topbarInner">
-      <div class="brand">
+      <div class="brand" role="presentation">
         <img class="brandLogo" src="./logo_ojo_png.png" alt="GlobalEye" />
         <div class="brandText">
           <div class="brandTitle">GLOBAL EYE</div>
-          <div class="brandSub">Memes (48h) · Tendencias · X timeline</div>
+          <div class="brandSub">Memes · Tendencias · X timeline</div>
         </div>
       </div>
 
       <nav class="tabs" aria-label="Vistas">
         <button id="tabMemes" class="tab isActive" type="button">
-          <span class="msr">collections</span><span>Memes</span>
+          <span class="msr">collections</span><span class="lbl">Memes</span>
         </button>
         <button id="tabTrends" class="tab" type="button">
-          <span class="msr">trending_up</span><span>Tendencias</span>
+          <span class="msr">trending_up</span><span class="lbl">Tendencias</span>
         </button>
         <button id="tabFavs" class="tab" type="button">
-          <span class="msr">star</span><span>Favoritos</span>
+          <span class="msr">star</span><span class="lbl">Favoritos</span>
         </button>
       </nav>
 
-      <div class="topActions">
+      <div class="topActions" aria-label="Acciones">
         <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
-          <span class="msr">open_in_new</span><span>@GlobalEye_TV</span>
+          <span class="msr">open_in_new</span><span class="lbl">@GlobalEye_TV</span>
         </a>
 
         <button id="btnReloadX" class="btn ghost" type="button" title="Recargar timeline de X">
-          <span class="msr">refresh</span><span>Feed</span>
+          <span class="msr">refresh</span><span class="lbl">Feed</span>
         </button>
 
         <button id="btnRefresh" class="btn" type="button" title="Actualizar datos">
-          <span class="msr">sync</span><span>Actualizar</span>
+          <span class="msr">sync</span><span class="lbl">Actualizar</span>
         </button>
 
         <button id="btnCompact" class="btn ghost" type="button" title="Modo compacto">
-          <span class="msr">density_small</span><span>Compacto</span>
+          <span class="msr">density_small</span><span class="lbl">Compacto</span>
         </button>
 
         <button id="btnTicker" class="btn ghost" type="button" title="Ticker inferior (OBS)">
-          <span class="msr">view_headline</span><span>Ticker</span>
+          <span class="msr">view_headline</span><span class="lbl">Ticker</span>
         </button>
 
         <button id="btnConfig" class="btn ghost" type="button" title="Configuración">
-          <span class="msr">settings</span><span>Config</span>
+          <span class="msr">settings</span><span class="lbl">Config</span>
         </button>
-      </div>
 
-      <div class="statusBar" role="status" aria-label="Estado">
-        <span class="pill"><span class="msr">public</span><span id="netStatus">Online</span></span>
-        <span class="pill"><span class="msr">schedule</span><span id="lastUpdated">—</span></span>
+        <div class="topStatus" role="status" aria-label="Estado">
+          <span class="pill" title="Estado de red">
+            <span class="msr">public</span><span id="netStatus">Online</span>
+          </span>
+          <span class="pill" title="Última actualización">
+            <span class="msr">schedule</span><span id="lastUpdated">—</span>
+          </span>
+        </div>
       </div>
     </div>
   </header>
@@ -96,8 +100,8 @@
             <option value="mix" selected>Mix</option>
             <option value="memes">r/memes</option>
             <option value="dankmemes">r/dankmemes</option>
-            <option value="meirl">r/me_irl</option>
-            <option value="wholesome">r/wholesomememes</option>
+            <option value="me_irl">r/me_irl</option>
+            <option value="wholesomememes">r/wholesomememes</option>
             <option value="funny">r/funny</option>
           </select>
 
@@ -147,16 +151,14 @@
           <span class="msr">for_you</span><span>Timeline X</span>
         </div>
 
-        <div id="xTimelineMount" class="xMount">
-          <!-- app.js monta aquí el widget -->
-        </div>
+        <div id="xTimelineMount" class="xMount"></div>
 
         <div id="xFallback" class="xFallback hidden">
           <div class="xFallbackText">
             El widget puede estar bloqueado por privacidad/adblock.
           </div>
           <a class="btn" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
-            <span class="msr">open_in_new</span><span>Abrir perfil</span>
+            <span class="msr">open_in_new</span><span class="lbl">Abrir perfil</span>
           </a>
         </div>
       </div>
@@ -178,6 +180,9 @@
     <div class="tickerInner">
       <span class="msr">view_headline</span>
       <div id="tickerTrack" class="tickerTrack"></div>
+      <button id="tickerClose" class="iconBtn" type="button" title="Cerrar ticker" aria-label="Cerrar ticker">
+        <span class="msr">close</span>
+      </button>
     </div>
   </div>
 
@@ -221,7 +226,7 @@
 
       <div class="modalFoot">
         <button id="cfgSave" class="btn" type="button">
-          <span class="msr">check</span><span>Guardar</span>
+          <span class="msr">check</span><span class="lbl">Guardar</span>
         </button>
       </div>
     </div>
