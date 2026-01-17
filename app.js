@@ -1,37 +1,37 @@
-/* app.js — GlobalEye Trends (Memes + Tendencias) — final-1.3.0
-   ✅ Mantiene IDs/estructura del HTML (no rompe tu layout)
-   ✅ FIX: guardado favoritos (evita crash -> “no se actualiza”)
-   ✅ MEMES: solo posts con imagen/vídeo (últimas 24/48/72h)
-   ✅ Tarjetas tipo Reddit + votos up/down (localStorage)
-   ✅ Feed X: botón “Recargar feed” (re-monta widget)
-*/
-
 (() => {
   "use strict";
 
-  const APP_TAG = "globaleye-trends:final-1.3.0";
+  /* ==========================================================
+     GlobalEye Trends — Final (Memes + Trends + X Timeline)
+     FIXES IMPORTANTES:
+     - Evita crasheos por errores de merge/render.
+     - Reddit: usa endpoint CORS-friendly (api.reddit.com) + fallback.
+     - SOLO memes con IMAGEN o VIDEO (filtrado fuerte).
+     - VOTACIÓN local (up/down) + orden "Best (tus votos)".
+     - Tendencias: cache-bust + pipeline robusto de scoring.
+     - Timeline X: carga robusta + recarga + fallback.
+     - UI: Material Symbols, toasts, ticker OBS.
+     ========================================================== */
 
-  // Anti doble carga (SW recarga, scripts duplicados, etc.)
+  const APP_TAG = "globaleye-trends:final-2.0.0";
+
   const prev = window.__GLOBAL_EYE_TRENDS__;
   if (prev?.tag === APP_TAG) return;
   if (typeof prev?.cleanup === "function") { try { prev.cleanup(); } catch {} }
   window.__GLOBAL_EYE_TRENDS__ = { tag: APP_TAG, cleanup: null };
 
-  /* ------------------------------ Config ------------------------------ */
   const CFG = {
     profile: "GlobalEye_TV",
     profileUrlX: "https://x.com/GlobalEye_TV",
     profileUrlTW: "https://twitter.com/GlobalEye_TV",
     twWidgets: "https://platform.twitter.com/widgets.js",
 
-    // Open data (no X API): GDELT doc API
     gdeltBase: "https://api.gdeltproject.org/api/v2/doc/doc",
-
-    // Búsqueda en X (abre en navegador)
     xSearchBase: "https://x.com/search?q=",
 
-    // Reddit (memes)
-    redditBase: "https://www.reddit.com",
+    // Fetch base (CORS OK) + base para abrir links
+    redditApiBase: "https://api.reddit.com",
+    redditWebBase: "https://www.reddit.com",
     redditSubs: {
       mix: ["memes", "dankmemes", "me_irl", "wholesomememes", "funny"],
       memes: ["memes"],
@@ -41,32 +41,32 @@
       funny: ["funny"]
     },
 
-    // Proxies para Reddit (si CORS molesta)
+    // Proxies opcionales (último recurso)
     proxies: [
       "https://api.allorigins.win/raw?url=",
       "https://api.codetabs.com/v1/proxy?quest="
     ],
 
     logoPng: "./logo_ojo_png.png",
-    logoJpg: "./logo_ojo.jpg",
     toastGif: "./logo_ojo_gif.gif",
 
-    // Storage keys (mantengo los tuyos)
-    LS_SETTINGS: "ge_trends_settings_final_1",
-    LS_FAVS: "ge_trends_favs_final_1",
-    LS_RANKS: "ge_trends_ranks_final_1",
-    LS_COMPACT: "ge_trends_compact_final_1",
+    LS_SETTINGS: "ge_trends_settings_final_2",
+    LS_FAVS: "ge_trends_favs_final_2",
+    LS_RANKS: "ge_trends_ranks_final_2",
+    LS_COMPACT: "ge_trends_compact_final_2",
+    LS_VOTES: "ge_trends_votes_final_2",
 
-    // Nuevo: votos memes
-    LS_MEME_VOTES: "ge_meme_votes_final_1",
-
-    FETCH_TIMEOUT_MS: 13500,
+    FETCH_TIMEOUT_MS: 14000,
     MIN_REFRESH_MS: 35000,
+
+    SW_URL: "./sw.js",
+    SW_UPDATE_EVERY_MS: 8 * 60_000,
+    SS_SW_RELOADED: "ge_sw_reloaded_once_final_2"
   };
 
-  /* ------------------------------ DOM ------------------------------ */
   const $ = (id) => document.getElementById(id);
 
+  // Core UI
   const elList = $("list");
   const elEmpty = $("empty");
   const elErr = $("err");
@@ -74,27 +74,16 @@
   const elNet = $("netStatus");
 
   const btnRefresh = $("btnRefresh");
-  const btnReloadX = $("btnReloadX");
   const btnCompact = $("btnCompact");
-
   const btnTicker = $("btnTicker");
+  const btnConfig = $("btnConfig");
+
   const tickerBar = $("tickerBar");
   const tickerTrack = $("tickerTrack");
   const tickerClose = $("tickerClose");
 
-  const btnConfig = $("btnConfig");
-  const cfgModal = $("cfgModal");
-  const cfgClose = $("cfgClose");
-  const cfgSave = $("cfgSave");
-
-  const cfgAuto = $("cfgAuto");
-  const cfgEvery = $("cfgEvery");
-  const cfgMaxTrends = $("cfgMaxTrends");
-  const cfgAlerts = $("cfgAlerts");
-  const cfgTicker = $("cfgTicker");
-  const cfgTickerSpeed = $("cfgTickerSpeed");
-  const cfgMemeMaxPosts = $("cfgMemeMaxPosts");
-  const cfgNoThumbs = $("cfgNoThumbs");
+  const btnReloadX = $("btnReloadX");
+  const timelineMount = $("timelineMount");
 
   const inpQ = $("q");
   const selLang = $("selLang");
@@ -111,346 +100,452 @@
   const tabsView = $("tabsView");
   const tabsCat = $("tabsCat");
 
-  const timelineMount = $("timelineMount");
+  const cfgModal = $("cfgModal");
+  const cfgClose = $("cfgClose");
+  const cfgSave = $("cfgSave");
+
+  const cfgAuto = $("cfgAuto");
+  const cfgEvery = $("cfgEvery");
+  const cfgMaxTrends = $("cfgMaxTrends");
+  const cfgAlerts = $("cfgAlerts");
+  const cfgTicker = $("cfgTicker");
+  const cfgTickerSpeed = $("cfgTickerSpeed");
+  const cfgMemeMaxPosts = $("cfgMemeMaxPosts");
+  const cfgNoThumbs = $("cfgNoThumbs");
+
   const toastHost = $("toastHost");
 
-  /* ------------------------------ Helpers ------------------------------ */
+  /* ==========================
+     Helpers
+     ========================== */
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const safeLower = (s) => String(s ?? "").toLowerCase();
+  const nowISO = () => new Date().toLocaleString();
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+  const decodeHtml = (s) => String(s ?? "").replace(/&amp;/g,"&").replace(/&#39;/g,"'").replace(/&quot;/g,'"');
 
-  function nowLabel(){
-    try{ return new Date().toLocaleString(); }catch{ return ""; }
-  }
+  function setText(el, t){ if (el) el.textContent = String(t ?? ""); }
 
-  function setErr(msg){
+  function showErr(msg){
     if (!elErr) return;
-    if (!msg){
-      elErr.classList.add("hidden");
-      elErr.textContent = "";
-      return;
-    }
-    elErr.textContent = msg;
     elErr.classList.remove("hidden");
+    elErr.textContent = msg || "Error desconocido";
   }
+  function hideErr(){ elErr?.classList.add("hidden"); elErr && (elErr.textContent=""); }
 
-  function setEmpty(on){
+  function showEmpty(on){
     if (!elEmpty) return;
-    on ? elEmpty.classList.remove("hidden") : elEmpty.classList.add("hidden");
+    elEmpty.classList.toggle("hidden", !on);
   }
 
-  function setLast(){
-    if (elLast) elLast.textContent = nowLabel() || "—";
-  }
-
-  function toast(title, msg){
+  function toast(title, msg, imgUrl){
     if (!toastHost) return;
-    if (!state.settings.alertsEnabled) return;
-
-    const t = document.createElement("div");
-    t.className = "toast";
-    t.innerHTML = `
-      <img class="toastImg" src="${CFG.logoPng}" alt="" />
+    const div = document.createElement("div");
+    div.className = "toast";
+    div.innerHTML = `
+      <img class="toastImg" src="${esc(imgUrl || CFG.toastGif)}" alt="">
       <div class="toastRow">
-        <div class="toastTitle">${escapeHtml(title)}</div>
-        <div class="toastMsg">${escapeHtml(msg)}</div>
+        <div class="toastTitle">${esc(title || "Aviso")}</div>
+        <div class="toastMsg">${esc(msg || "")}</div>
       </div>
-      <button class="toastX" type="button" aria-label="Cerrar">
-        <span class="ms" aria-hidden="true">close</span>
-      </button>
+      <button class="toastX" type="button" aria-label="Cerrar">✕</button>
     `;
-    const btn = t.querySelector(".toastX");
-    btn?.addEventListener("click", () => t.remove(), { once:true });
-    toastHost.appendChild(t);
-
-    setTimeout(() => { try{ t.remove(); }catch{} }, 4500);
+    const btn = div.querySelector(".toastX");
+    btn?.addEventListener("click", () => div.remove(), { once:true });
+    toastHost.appendChild(div);
+    setTimeout(() => { try { div.remove(); } catch {} }, 5200);
   }
 
-  function escapeHtml(str){
-    return String(str ?? "")
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-
-  /* ------------------------------ State ------------------------------ */
+  /* ==========================
+     State + Storage
+     ========================== */
   const state = {
-    // Settings persistentes
-    settings: {
-      autoRefresh: true,
-      refreshEveryMs: 120_000,
-      maxTrends: 35,
-      maxArticles: 120,
-      alertsEnabled: true,
-      tickerEnabled: false,
-      tickerSpeedSec: 28,
-      memeMaxPosts: 45,
-      noThumbs: false,
-      lang: "spanish",
-      window: "4H",
-      geo: "ES",
-    },
-
-    // UI state
+    settings: null,
     view: "memes",     // memes | all | favs
-    category: "all",   // all | news | viral | politics | sports
-    compact: false,
+    category: "all",   // all | news | viral | politics | sports (para tendencias)
 
-    // Data
     trends: [],
-    filteredTrends: [],
+    filtered: [],
     favs: new Set(),
     ranks: Object.create(null),
 
     memes: [],
-    filteredMemes: [],
+    memesFiltered: [],
 
-    // Meme votes (local)
-    memeVotes: Object.create(null), // key -> -1/0/1
+    votes: Object.create(null), // id -> -1/0/1
+    compact: false,
 
-    // Runtime
     aborter: null,
     refreshTimer: null,
+
+    swReg: null,
+    swTick: null,
+
     _cleanups: []
   };
 
-  window.__GLOBAL_EYE_TRENDS__.cleanup = () => {
-    try { state.aborter?.abort?.(); } catch {}
-    try { clearInterval(state.refreshTimer); } catch {}
-    state._cleanups.forEach(fn => { try{ fn(); }catch{} });
-    state._cleanups = [];
-  };
+  function loadJson(key, fallback){
+    try{
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    }catch{
+      return fallback;
+    }
+  }
+  function saveJson(key, val){
+    try{ localStorage.setItem(key, JSON.stringify(val)); }catch{}
+  }
 
-  /* ------------------------------ Persistence ------------------------------ */
   function loadSettings(){
-    // Settings
-    try{
-      const raw = localStorage.getItem(CFG.LS_SETTINGS);
-      if (raw){
-        const obj = JSON.parse(raw);
-        if (obj && typeof obj === "object"){
-          state.settings.autoRefresh = !!obj.autoRefresh;
-          state.settings.refreshEveryMs = clamp(Number(obj.refreshEveryMs ?? state.settings.refreshEveryMs), CFG.MIN_REFRESH_MS, 900_000);
-          state.settings.maxTrends = clamp(Number(obj.maxTrends ?? state.settings.maxTrends), 10, 80);
-          state.settings.maxArticles = clamp(Number(obj.maxArticles ?? state.settings.maxArticles), 50, 500);
-          state.settings.alertsEnabled = (obj.alertsEnabled !== false);
-          state.settings.tickerEnabled = !!obj.tickerEnabled;
-          state.settings.tickerSpeedSec = clamp(Number(obj.tickerSpeedSec ?? state.settings.tickerSpeedSec), 12, 120);
-          state.settings.memeMaxPosts = clamp(Number(obj.memeMaxPosts ?? state.settings.memeMaxPosts), 10, 120);
-          state.settings.noThumbs = !!obj.noThumbs;
-          state.settings.lang = String(obj.lang ?? state.settings.lang);
-          state.settings.window = String(obj.window ?? state.settings.window);
-          state.settings.geo = String(obj.geo ?? state.settings.geo);
-        }
-      }
-    }catch{}
+    const s = loadJson(CFG.LS_SETTINGS, null) || {};
+    state.settings = {
+      view: s.view || "memes",
+      category: s.category || "all",
+      lang: s.lang || "spanish",
+      window: s.window || "4H",
+      geo: s.geo || "ES",
+      auto: (typeof s.auto === "boolean") ? s.auto : true,
+      everySec: clamp(Number(s.everySec || 120), 35, 900),
+      maxTrends: clamp(Number(s.maxTrends || 35), 10, 80),
+      ticker: !!s.ticker,
+      tickerSpeed: clamp(Number(s.tickerSpeed || 28), 12, 120),
+      memeSource: s.memeSource || "mix",
+      memeSort: s.memeSort || "new",     // new|hot|top|best
+      memeRangeH: clamp(Number(s.memeRangeH || 48), 24, 72),
+      memeMaxPosts: clamp(Number(s.memeMaxPosts || 45), 10, 120),
+      noThumbs: !!s.noThumbs,
+      alerts: (typeof s.alerts === "boolean") ? s.alerts : true
+    };
 
-    // Compact
-    try{
-      const c = localStorage.getItem(CFG.LS_COMPACT);
-      state.compact = (c === "1");
-    }catch{}
+    state.view = state.settings.view;
+    state.category = state.settings.category;
 
-    // Favs
-    try{
-      const rawFav = localStorage.getItem(CFG.LS_FAVS);
-      if (rawFav){
-        const arr = JSON.parse(rawFav);
-        if (Array.isArray(arr)){
-          state.favs = new Set(arr.map(String));
-        }
-      }
-    }catch{}
+    state.favs = new Set(loadJson(CFG.LS_FAVS, []));
+    state.ranks = loadJson(CFG.LS_RANKS, Object.create(null)) || Object.create(null);
+    state.compact = !!loadJson(CFG.LS_COMPACT, false);
+    state.votes = loadJson(CFG.LS_VOTES, Object.create(null)) || Object.create(null);
 
-    // Ranks
-    try{
-      const rawR = localStorage.getItem(CFG.LS_RANKS);
-      if (rawR){
-        const obj = JSON.parse(rawR);
-        if (obj && typeof obj === "object") state.ranks = obj;
-      }
-    }catch{}
+    document.body.classList.toggle("compact", state.compact);
 
-    // Meme votes
-    try{
-      const rawV = localStorage.getItem(CFG.LS_MEME_VOTES);
-      if (rawV){
-        const obj = JSON.parse(rawV);
-        if (obj && typeof obj === "object"){
-          state.memeVotes = obj;
-        }
-      }
-    }catch{}
+    // Sync UI
+    if (selLang) selLang.value = state.settings.lang;
+    if (selWindow) selWindow.value = state.settings.window;
+    if (selGeo) selGeo.value = state.settings.geo;
+
+    if (selMemeSource) selMemeSource.value = state.settings.memeSource;
+    if (selMemeSort) selMemeSort.value = state.settings.memeSort;
+    if (selMemeRange) selMemeRange.value = String(state.settings.memeRangeH);
+
+    if (cfgAuto) cfgAuto.checked = state.settings.auto;
+    if (cfgEvery) cfgEvery.value = String(state.settings.everySec);
+    if (cfgMaxTrends) cfgMaxTrends.value = String(state.settings.maxTrends);
+    if (cfgAlerts) cfgAlerts.checked = state.settings.alerts;
+    if (cfgTicker) cfgTicker.checked = state.settings.ticker;
+    if (cfgTickerSpeed) cfgTickerSpeed.value = String(state.settings.tickerSpeed);
+    if (cfgMemeMaxPosts) cfgMemeMaxPosts.value = String(state.settings.memeMaxPosts);
+    if (cfgNoThumbs) cfgNoThumbs.checked = state.settings.noThumbs;
+
+    setViewMode(state.view, true);
+    setCategory(state.category, true);
+    setTickerVisible(state.settings.ticker);
+    updateTickerSpeed();
   }
 
   function saveSettings(){
-    try{
-      localStorage.setItem(CFG.LS_SETTINGS, JSON.stringify({
-        autoRefresh: state.settings.autoRefresh,
-        refreshEveryMs: state.settings.refreshEveryMs,
-        maxTrends: state.settings.maxTrends,
-        maxArticles: state.settings.maxArticles,
-        alertsEnabled: state.settings.alertsEnabled,
-        tickerEnabled: state.settings.tickerEnabled,
-        tickerSpeedSec: state.settings.tickerSpeedSec,
-        memeMaxPosts: state.settings.memeMaxPosts,
-        noThumbs: state.settings.noThumbs,
-        lang: pickLang(),
-        window: pickTimespanUi(),
-        geo: pickGeo(),
-      }));
-    }catch{}
-    try{ localStorage.setItem(CFG.LS_COMPACT, state.compact ? "1" : "0"); }catch{}
+    const s = state.settings || {};
+    s.view = state.view;
+    s.category = state.category;
+    saveJson(CFG.LS_SETTINGS, s);
   }
 
-  function saveFavs(){
-    // FIX CRÍTICO: aquí se te puede romper todo si queda mal serializado
-    try{
-      localStorage.setItem(CFG.LS_FAVS, JSON.stringify([...state.favs]));
-    }catch{}
+  function saveFavs(){ saveJson(CFG.LS_FAVS, Array.from(state.favs)); }
+  function saveRanks(){ saveJson(CFG.LS_RANKS, state.ranks); }
+  function saveCompact(){ saveJson(CFG.LS_COMPACT, state.compact); }
+  function saveVotes(){ saveJson(CFG.LS_VOTES, state.votes); }
+
+  function favKeyTrend(label){ return `t:${safeLower(label)}`; }
+  function favKeyMeme(id){ return `m:${id}`; }
+
+  function isFav(key){ return state.favs.has(key); }
+  function toggleFav(key){
+    if (state.favs.has(key)) state.favs.delete(key);
+    else state.favs.add(key);
+    saveFavs();
   }
 
-  function saveRanks(){
-    try{
-      localStorage.setItem(CFG.LS_RANKS, JSON.stringify(state.ranks || {}));
-    }catch{}
+  function getVote(id){
+    const v = Number(state.votes?.[id] ?? 0);
+    return (v === 1 || v === -1) ? v : 0;
+  }
+  function setVote(id, v){
+    state.votes[id] = v;
+    saveVotes();
   }
 
-  function saveMemeVotes(){
-    try{
-      localStorage.setItem(CFG.LS_MEME_VOTES, JSON.stringify(state.memeVotes || {}));
-    }catch{}
-  }
-
-  /* ------------------------------ UI sync ------------------------------ */
-  function syncUiFromState(){
-    // Selects
-    if (selLang) selLang.value = pickLang();
-    if (selWindow) selWindow.value = pickTimespanUi();
-    if (selGeo) selGeo.value = pickGeo();
-
-    if (cfgAuto) cfgAuto.checked = !!state.settings.autoRefresh;
-    if (cfgEvery) cfgEvery.value = String(Math.round(state.settings.refreshEveryMs / 1000));
-    if (cfgMaxTrends) cfgMaxTrends.value = String(state.settings.maxTrends);
-    if (cfgAlerts) cfgAlerts.checked = !!state.settings.alertsEnabled;
-    if (cfgTicker) cfgTicker.checked = !!state.settings.tickerEnabled;
-    if (cfgTickerSpeed) cfgTickerSpeed.value = String(state.settings.tickerSpeedSec);
-    if (cfgMemeMaxPosts) cfgMemeMaxPosts.value = String(state.settings.memeMaxPosts);
-    if (cfgNoThumbs) cfgNoThumbs.checked = !!state.settings.noThumbs;
-
-    document.documentElement.style.setProperty("--tickerDur", `${state.settings.tickerSpeedSec}s`);
-
-    document.body.classList.toggle("compact", state.compact);
-    btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
-
-    setTickerVisible(!!state.settings.tickerEnabled);
-    btnTicker?.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
-
-    // Filtros visibles según vista
-    const memesOn = (state.view === "memes");
-    trendFilters?.classList.toggle("hidden", memesOn);
-    memeFilters?.classList.toggle("hidden", !memesOn);
-
-    // Categorías solo para tendencias/favs
-    tabsCat?.classList.toggle("hidden", memesOn);
-  }
-
-  function pickTimespanUi(){
-    const v = String(selWindow?.value || state.settings.window || "4H").toUpperCase();
-    return (["2H","4H","6H","12H"].includes(v)) ? v : "4H";
-  }
-  function pickTimespanGdelt(){ return pickTimespanUi().toLowerCase(); }
-  function pickLang(){
-    const v = String(selLang?.value || state.settings.lang || "spanish").toLowerCase();
-    if (v === "mixed") return "mixed";
-    if (v === "english") return "english";
-    return "spanish";
-  }
-  function pickGeo(){
-    const v = String(selGeo?.value || state.settings.geo || "ES").toUpperCase();
-    return (v === "GLOBAL") ? "GLOBAL" : "ES";
-  }
-
-  function openConfig(){ cfgModal?.classList.remove("hidden"); }
-  function closeConfig(){ cfgModal?.classList.add("hidden"); }
-
-  function setActiveTab(container, attr, value){
-    if (!container) return;
-    container.querySelectorAll(".tab").forEach(b => {
-      const v = b.getAttribute(attr);
-      const active = (v === value);
-      b.classList.toggle("isActive", active);
-      b.setAttribute("aria-selected", active ? "true" : "false");
-    });
-  }
-
-  function toggleCompact(){
-    state.compact = !state.compact;
-    document.body.classList.toggle("compact", state.compact);
-    btnCompact?.setAttribute("aria-pressed", state.compact ? "true" : "false");
+  /* ==========================
+     UI Actions
+     ========================== */
+  function setTickerVisible(on){
+    if (!tickerBar) return;
+    tickerBar.classList.toggle("hidden", !on);
+    state.settings.ticker = !!on;
+    if (cfgTicker) cfgTicker.checked = !!on;
     saveSettings();
   }
 
-  function setTickerVisible(on){
-    if (!tickerBar) return;
-    on ? tickerBar.classList.remove("hidden") : tickerBar.classList.add("hidden");
+  function updateTickerSpeed(){
+    const sec = clamp(Number(state.settings.tickerSpeed || 28), 12, 120);
+    state.settings.tickerSpeed = sec;
+    if (tickerTrack) tickerTrack.style.setProperty("--tickerDur", `${sec}s`);
   }
 
-  /* ------------------------------ X Timeline ------------------------------ */
-  function ensureWidgetsScript(){
+  function setViewMode(v, silent){
+    state.view = v;
+    state.settings.view = v;
+    saveSettings();
+
+    const isMemes = (v === "memes");
+    const isTrends = (v === "all");
+    const isFavs = (v === "favs");
+
+    if (trendFilters) trendFilters.classList.toggle("hidden", !isTrends);
+    if (memeFilters) memeFilters.classList.toggle("hidden", !isMemes);
+
+    if (tabsCat) tabsCat.classList.toggle("hidden", !isTrends);
+
+    if (inpQ) inpQ.placeholder = isMemes ? "Buscar memes…" : (isTrends ? "Buscar tendencias…" : "Buscar favoritos…");
+
+    if (!silent) applyFiltersAndRender();
+  }
+
+  function setCategory(cat, silent){
+    state.category = cat;
+    state.settings.category = cat;
+    saveSettings();
+    if (!silent) applyFiltersAndRender();
+  }
+
+  function setTabsActive(container, dataAttr, val){
+    if (!container) return;
+    const btns = container.querySelectorAll("button");
+    btns.forEach(b => {
+      const v = b.getAttribute(dataAttr);
+      const on = (v === val);
+      b.classList.toggle("isActive", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
+
+  function bindUI(){
+    // Header buttons
+    btnRefresh?.addEventListener("click", () => refreshNow(), { passive:true });
+
+    btnCompact?.addEventListener("click", () => {
+      state.compact = !state.compact;
+      document.body.classList.toggle("compact", state.compact);
+      saveCompact();
+    }, { passive:true });
+
+    btnTicker?.addEventListener("click", () => setTickerVisible(tickerBar?.classList.contains("hidden")), { passive:true });
+    tickerClose?.addEventListener("click", () => setTickerVisible(false), { passive:true });
+
+    btnConfig?.addEventListener("click", () => openConfig(true), { passive:true });
+    cfgClose?.addEventListener("click", () => openConfig(false), { passive:true });
+
+    cfgSave?.addEventListener("click", () => {
+      // Leer config
+      state.settings.auto = !!cfgAuto?.checked;
+      state.settings.everySec = clamp(Number(cfgEvery?.value || 120), 35, 900);
+      state.settings.maxTrends = clamp(Number(cfgMaxTrends?.value || 35), 10, 80);
+      state.settings.alerts = !!cfgAlerts?.checked;
+      state.settings.ticker = !!cfgTicker?.checked;
+      state.settings.tickerSpeed = clamp(Number(cfgTickerSpeed?.value || 28), 12, 120);
+      state.settings.memeMaxPosts = clamp(Number(cfgMemeMaxPosts?.value || 45), 10, 120);
+      state.settings.noThumbs = !!cfgNoThumbs?.checked;
+
+      updateTickerSpeed();
+      setTickerVisible(state.settings.ticker);
+
+      saveSettings();
+      openConfig(false);
+      setupAutoRefresh();
+      applyFiltersAndRender();
+      toast("Config", "Configuración guardada.");
+    }, { passive:true });
+
+    // Tabs view
+    tabsView?.addEventListener("click", (e) => {
+      const b = e.target?.closest("button.tab");
+      if (!b) return;
+      const v = b.getAttribute("data-view");
+      if (!v) return;
+      setTabsActive(tabsView, "data-view", v);
+      setViewMode(v, false);
+    });
+
+    // Tabs category
+    tabsCat?.addEventListener("click", (e) => {
+      const b = e.target?.closest("button.tab");
+      if (!b) return;
+      const c = b.getAttribute("data-cat");
+      if (!c) return;
+      setTabsActive(tabsCat, "data-cat", c);
+      setCategory(c, false);
+    });
+
+    // Filters
+    inpQ?.addEventListener("input", () => applyFiltersAndRender(), { passive:true });
+
+    selLang?.addEventListener("change", () => { state.settings.lang = selLang.value; saveSettings(); refreshNow(true); }, { passive:true });
+    selWindow?.addEventListener("change", () => { state.settings.window = selWindow.value; saveSettings(); refreshNow(true); }, { passive:true });
+    selGeo?.addEventListener("change", () => { state.settings.geo = selGeo.value; saveSettings(); refreshNow(true); }, { passive:true });
+
+    selMemeSource?.addEventListener("change", () => { state.settings.memeSource = selMemeSource.value; saveSettings(); refreshNow(false); }, { passive:true });
+    selMemeSort?.addEventListener("change", () => { state.settings.memeSort = selMemeSort.value; saveSettings(); refreshNow(false); }, { passive:true });
+    selMemeRange?.addEventListener("change", () => { state.settings.memeRangeH = clamp(Number(selMemeRange.value), 24, 72); saveSettings(); refreshNow(false); }, { passive:true });
+
+    // Timeline reload
+    btnReloadX?.addEventListener("click", () => mountTimeline(true), { passive:true });
+
+    // Close modal by click outside
+    cfgModal?.addEventListener("click", (e) => {
+      if (e.target === cfgModal) openConfig(false);
+    });
+
+    // Online/offline
+    window.addEventListener("online", () => setText(elNet, "OK"), { passive:true });
+    window.addEventListener("offline", () => setText(elNet, "OFF"), { passive:true });
+  }
+
+  function openConfig(on){
+    if (!cfgModal) return;
+    cfgModal.classList.toggle("hidden", !on);
+  }
+
+  /* ==========================
+     Networking
+     ========================== */
+  function makeAbort(){
+    try{ state.aborter?.abort(); }catch{}
+    state.aborter = new AbortController();
+    return state.aborter;
+  }
+
+  async function fetchJson(url, { signal } = {}){
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), CFG.FETCH_TIMEOUT_MS);
+
+    const merged = new AbortController();
+    const onAbort = () => merged.abort();
+    signal?.addEventListener("abort", onAbort, { once:true });
+    ctrl.signal.addEventListener("abort", onAbort, { once:true });
+
     try{
-      if (window.twttr?.widgets) return true;
-      if (document.querySelector(`script[src="${CFG.twWidgets}"]`)) return true;
-      const s = document.createElement("script");
-      s.async = true;
-      s.src = CFG.twWidgets;
-      s.charset = "utf-8";
-      document.head.appendChild(s);
-      return true;
-    }catch{
-      return false;
+      const res = await fetch(url, { signal: merged.signal, cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } finally {
+      clearTimeout(t);
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 
-  function mountTimeline(force = false){
+  async function fetchJsonWithFallback(urls, signal){
+    let lastErr = null;
+    for (const u of urls){
+      try{
+        return await fetchJson(u, { signal });
+      }catch(e){
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("Fetch failed");
+  }
+
+  /* ==========================
+     X timeline (robusto)
+     ========================== */
+  function ensureWidgetsScript(){
+    try{
+      if (window.twttr?.widgets) return Promise.resolve(true);
+
+      const existing = document.querySelector(`script[src="${CFG.twWidgets}"]`);
+      if (existing) {
+        return new Promise((resolve) => {
+          const done = () => resolve(true);
+          existing.addEventListener("load", done, { once:true });
+          setTimeout(done, 1800);
+        });
+      }
+
+      return new Promise((resolve) => {
+        const s = document.createElement("script");
+        s.async = true;
+        s.src = CFG.twWidgets;
+        s.charset = "utf-8";
+        s.onload = () => resolve(true);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+        setTimeout(() => resolve(!!window.twttr?.widgets), 2400);
+      });
+    }catch{
+      return Promise.resolve(false);
+    }
+  }
+
+  async function mountTimeline(force){
     if (!timelineMount) return;
 
-    // Re-montar implica limpiar y volver a crear el anchor
+    if (force) timelineMount.innerHTML = "";
+    else if (timelineMount.querySelector("iframe")) return;
+
     timelineMount.innerHTML = "";
 
+    const ok = await ensureWidgetsScript();
+
+    // Prefer createTimeline si existe (más robusto)
+    try{
+      if (ok && window.twttr?.widgets?.createTimeline){
+        const wrap = document.createElement("div");
+        timelineMount.appendChild(wrap);
+
+        await window.twttr.widgets.createTimeline(
+          { sourceType:"profile", screenName: CFG.profile },
+          wrap,
+          { theme:"dark", dnt:true, chrome:"noheader nofooter", height: 720 }
+        );
+        return;
+      }
+    }catch{
+      // fallback abajo
+    }
+
+    // Fallback clásico: anchor + widgets.load
     const a = document.createElement("a");
     a.className = "twitter-timeline";
     a.href = CFG.profileUrlTW;
     a.setAttribute("data-theme", "dark");
     a.setAttribute("data-dnt", "true");
     a.setAttribute("data-chrome", "noheader nofooter");
-    a.setAttribute("data-height", "680");
-    if (force) a.setAttribute("data-tt", String(Date.now())); // pequeño “bust” para algunos casos
+    a.setAttribute("data-height", "720");
     a.textContent = `Tweets by @${CFG.profile}`;
-
     timelineMount.appendChild(a);
 
-    ensureWidgetsScript();
+    try{
+      window.twttr?.widgets?.load?.(timelineMount);
+    }catch{}
 
-    const tryLoad = () => {
-      try{
-        if (window.twttr?.widgets?.load) window.twttr.widgets.load(timelineMount);
-      }catch{}
-    };
-
-    tryLoad();
-    setTimeout(tryLoad, 1200);
-    setTimeout(tryLoad, 2600);
-
-    // Fallback si se bloquea (adblock)
+    // Fallback visual si no aparece iframe
     setTimeout(() => {
       const hasIframe = !!timelineMount.querySelector("iframe");
       if (hasIframe) return;
-      if (document.getElementById("tl_fallback_hint")) return;
+
+      if (timelineMount.querySelector(".timelineFallback")) return;
 
       const div = document.createElement("div");
-      div.id = "tl_fallback_hint";
       div.className = "timelineFallback";
       div.innerHTML = `
         <div class="tlTitle">El feed no cargó</div>
@@ -461,754 +556,812 @@
     }, 9000);
   }
 
-  /* ------------------------------ GDELT (tendencias) ------------------------------ */
+  /* ==========================
+     GDELT trends
+     ========================== */
+  function timespanFromWindow(win){
+    const w = safeLower(win || "4H");
+    if (w === "2h") return "2h";
+    if (w === "6h") return "6h";
+    if (w === "12h") return "12h";
+    return "4h";
+  }
+
   function buildGdeltQuery(){
-    const lang = pickLang();
-    const geo = pickGeo();
+    const lang = state.settings.lang;
+    const geo = state.settings.geo;
 
-    let q;
-    if (lang === "mixed") q = `(sourcelang:spanish OR sourcelang:english)`;
-    else q = `sourcelang:${lang}`;
+    const parts = [];
 
-    // Ajuste: si piden GLOBAL en español, amplío a mixto para mejores resultados
-    if (geo === "GLOBAL" && lang === "spanish"){
-      q = `(sourcelang:spanish OR sourcelang:english)`;
+    if (geo === "ES") parts.push("sourcecountry:sp"); // FIPS Spain = SP
+    if (lang === "spanish") parts.push("sourcelang:spanish");
+    else if (lang === "english") parts.push("sourcelang:english");
+    else {
+      // mixed => sin filtro de idioma
+      // OJO: query no puede quedar vacío
     }
-    return q;
+
+    if (!parts.length) parts.push("a");
+    return parts.join(" ");
   }
 
-  function buildGdeltUrl(format, cbName){
-    const params = new URLSearchParams();
-    params.set("format", format);
-    params.set("mode", "artlist");
-    params.set("sort", "hybridrel");
-    params.set("maxrecords", String(clamp(state.settings.maxArticles, 50, 500)));
-    params.set("timespan", pickTimespanGdelt());
-    params.set("query", buildGdeltQuery());
-    if (format === "jsonp") params.set("callback", cbName || "callback");
-    return `${CFG.gdeltBase}?${params.toString()}`;
+  async function fetchGdeltArticles(signal){
+    const q = buildGdeltQuery();
+    const span = timespanFromWindow(state.settings.window);
+    const url =
+      `${CFG.gdeltBase}?format=json&mode=ArtList&sort=HybridRel&maxrecords=250` +
+      `&timespan=${encodeURIComponent(span)}` +
+      `&query=${encodeURIComponent(q)}` +
+      `&__ge=${Date.now()}`;
+
+    const data = await fetchJson(url, { signal });
+    const arts = Array.isArray(data?.articles) ? data.articles : [];
+    return arts;
   }
 
-  async function fetchWithTimeout(url, ms, signal){
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), ms);
-    const onAbort = () => ctrl.abort();
-    try{
-      if (signal) signal.addEventListener("abort", onAbort, { once:true });
-      return await fetch(url, { signal: ctrl.signal, cache: "no-store" });
-    }finally{
-      clearTimeout(t);
-      if (signal) signal.removeEventListener("abort", onAbort);
+  const STOP_ES = new Set([
+    "de","la","el","y","en","a","los","las","un","una","unos","unas","por","para","con","sin",
+    "del","al","se","su","sus","es","son","fue","ser","han","hoy","ayer","mañana","más","menos",
+    "que","como","qué","cuando","donde","desde","hasta","sobre","tras","ante","entre","contra",
+    "ya","no","sí","pero","también","muy","esto","esta","estos","estas","este","esa","ese","esas","esos"
+  ]);
+  const STOP_EN = new Set([
+    "the","a","an","and","or","in","on","at","to","for","from","with","without","of","by",
+    "is","are","was","were","be","been","being","as","it","its","this","that","these","those",
+    "today","yesterday","tomorrow","more","less","not","but","also","very"
+  ]);
+
+  function normToken(w){
+    return safeLower(w)
+      .replace(/[“”"’'`]/g,"")
+      .replace(/[^\p{L}\p{N}_#@-]+/gu,"")
+      .trim();
+  }
+
+  function extractCandidates(title){
+    const raw = String(title || "");
+    const tags = raw.match(/[@#][\w_]{2,}/g) || [];
+
+    // tokens
+    const words = raw
+      .replace(/[(){}\[\]<>]/g," ")
+      .replace(/[.,;:!?/\\|]/g," ")
+      .split(/\s+/g)
+      .map(normToken)
+      .filter(Boolean);
+
+    const toks = [];
+    for (const w of words){
+      if (w.startsWith("#") || w.startsWith("@")) continue;
+      if (w.length < 3) continue;
+      if (STOP_ES.has(w) || STOP_EN.has(w)) continue;
+      toks.push(w);
     }
-  }
 
-  function jsonp(url, cbName, timeoutMs){
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      const cleanup = () => {
-        try { delete window[cbName]; } catch {}
-        script.remove();
-      };
-
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error("JSONP timeout"));
-      }, timeoutMs || 12000);
-
-      window[cbName] = (data) => {
-        clearTimeout(timer);
-        cleanup();
-        resolve(data);
-      };
-
-      script.src = url;
-      script.async = true;
-      script.onerror = () => {
-        clearTimeout(timer);
-        cleanup();
-        reject(new Error("JSONP load error"));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  async function getGdeltData(signal){
-    const url = buildGdeltUrl("json");
-    try{
-      const r = await fetchWithTimeout(url, CFG.FETCH_TIMEOUT_MS, signal);
-      if (!r.ok) throw new Error(`GDELT HTTP ${r.status}`);
-      return await r.json();
-    }catch{
-      // Fallback JSONP (más tolerante si hay bloqueos intermedios)
-      const cb = `__gdelt_cb_${Math.random().toString(16).slice(2)}`;
-      const u2 = buildGdeltUrl("jsonp", cb);
-      return await jsonp(u2, cb, CFG.FETCH_TIMEOUT_MS);
+    // ngrams (2-3)
+    const grams = [];
+    for (let i=0;i<toks.length;i++){
+      const a=toks[i], b=toks[i+1], c=toks[i+2];
+      if (a && b) grams.push(`${a} ${b}`);
+      if (a && b && c) grams.push(`${a} ${b} ${c}`);
     }
+
+    // “entidades” simples: palabras capitalizadas en el título original
+    const ents = [];
+    const cap = raw.match(/\b[A-ZÁÉÍÓÚÜÑ][\p{L}\p{N}_-]{2,}(?:\s+[A-ZÁÉÍÓÚÜÑ][\p{L}\p{N}_-]{2,}){0,3}\b/gu) || [];
+    for (const e of cap){
+      const ne = e.trim();
+      if (ne.length >= 4) ents.push(ne);
+    }
+
+    return { tags, grams, ents };
   }
 
-  function classifyTrend(title){
-    const t = safeLower(title);
-    const has = (...words) => words.some(w => t.includes(w));
-
-    if (has("fútbol","liga","champions","madrid","barcelona","nba","nfl","goal","gol","tenis","ufc","motogp","f1","formula 1")) return "sports";
-    if (has("gobierno","presidente","elecciones","congreso","senado","parlamento","pp ","psoe","vox","sumar","trump","biden","putin","ucrania","israel","gaza")) return "politics";
-    if (has("viral","meme","tiktok","trend","influencer","streamer","youtube","instagram","x ","twitter","polémica","escándalo")) return "viral";
+  function classifyTrend(label){
+    const t = safeLower(label);
+    if (/(elecci|gobiern|congreso|parlament|president|trump|putin|biden|israel|gaza|ucrania|rusia|otan|ue|europa)/.test(t)) return "politics";
+    if (/(liga|nba|nfl|fútbol|futbol|champions|barça|madrid|tenis|ufc|mundial|gol|deporte)/.test(t)) return "sports";
+    if (/(meme|viral|tiktok|youtube|stream|trend|polémic|drama|influencer|celebr)/.test(t)) return "viral";
     return "news";
   }
 
-  function normalizeTrends(data){
-    const arts = data?.articles || data?.articles?.results || data?.results || data?.artlist || data?.artlist?.articles || data?.artlist?.articles?.results;
-    const arr = Array.isArray(data?.articles) ? data.articles : Array.isArray(arts) ? arts : [];
+  function computeTrends(articles){
+    const map = new Map();
 
-    // “artlist” de GDELT suele traer data.articles
-    const list = Array.isArray(data?.articles) ? data.articles : (Array.isArray(data?.articles?.results) ? data.articles.results : []);
-    const src = list.length ? list : arr;
+    const domainSeen = new Map(); // label -> Set(domains)
+    const now = Date.now();
 
-    const out = [];
-    for (const a of src){
-      const title = String(a?.title || a?.name || "").trim();
-      const url = String(a?.url || a?.sourceCountry || a?.shareimage || "").trim();
-      const domain = String(a?.domain || "").trim();
-      const seen = String(a?.seendate || a?.seenDate || a?.date || "").trim();
-      const image = String(a?.socialimage || a?.image || a?.shareimage || "").trim();
-
+    for (const a of articles){
+      const title = a?.title;
       if (!title) continue;
 
-      // Key estable
-      const key = `t:${hashStr((url || "") + "|" + title)}`;
+      const url = a?.url || "";
+      let dom = "";
+      try{ dom = (new URL(url)).hostname.replace(/^www\./,""); }catch{}
+
+      const img = a?.socialimage || "";
+      const ts = a?.seendate ? Date.parse(a.seendate) : NaN;
+      const ageH = Number.isFinite(ts) ? Math.max(0, (now - ts) / 36e5) : 6;
+
+      const { tags, grams, ents } = extractCandidates(title);
+
+      const add = (label, w) => {
+        const key = safeLower(label);
+        if (!key || key.length < 3) return;
+
+        const cur = map.get(key) || {
+          key,
+          label,
+          score: 0,
+          hits: 0,
+          sampleUrl: url,
+          sampleImage: img,
+          cat: "news",
+          ageHint: ageH
+        };
+
+        cur.hits += 1;
+        cur.score += w;
+        cur.ageHint = Math.min(cur.ageHint, ageH);
+        if (!cur.sampleUrl && url) cur.sampleUrl = url;
+        if (!cur.sampleImage && img) cur.sampleImage = img;
+
+        cur.cat = classifyTrend(cur.label);
+
+        map.set(key, cur);
+
+        if (dom){
+          let s = domainSeen.get(key);
+          if (!s){ s = new Set(); domainSeen.set(key, s); }
+          s.add(dom);
+        }
+      };
+
+      // peso por frescura (más reciente, más peso)
+      const freshness = clamp(1.0 + (6 - Math.min(6, ageH)) * 0.12, 0.9, 1.7);
+
+      for (const t of tags) add(t, 8.0 * freshness);
+      for (const g of grams) add(g, 2.3 * freshness);
+      for (const e of ents) add(e, 3.1 * freshness);
+    }
+
+    // Post-procesado: boost por diversidad de dominios
+    const items = Array.from(map.values()).map(it => {
+      const doms = domainSeen.get(it.key);
+      const diversity = doms ? clamp(doms.size, 1, 9) : 1;
+      it.score = it.score * (1 + (diversity - 1) * 0.10);
+      return it;
+    });
+
+    // ordenar + rank + delta
+    items.sort((a,b) => (b.score - a.score));
+    const maxN = state.settings.maxTrends || 35;
+
+    const out = [];
+    for (let i=0;i<items.length && out.length<maxN;i++){
+      const it = items[i];
+
+      // limpiar ruido (muy corto / muy genérico)
+      const lk = safeLower(it.label);
+      if (lk.length < 4) continue;
+      if (STOP_ES.has(lk) || STOP_EN.has(lk)) continue;
+
+      const rank = out.length + 1;
+      const prevRank = Number(state.ranks?.[it.key] ?? 0);
+      const delta = prevRank ? (prevRank - rank) : 0;
 
       out.push({
-        key,
-        title,
-        url: url && url.startsWith("http") ? url : "",
-        domain,
-        seen,
-        image,
-        cat: classifyTrend(title),
+        ...it,
+        rank,
+        delta,
+        score: Math.round(it.score * 10) / 10
       });
     }
 
-    // Ranking simple: frecuencia por title (muy light) + orden original
-    // Si no hay suficiente, se queda como viene.
-    return out.slice(0, clamp(state.settings.maxTrends, 10, 80));
+    // guardar ranks para próxima delta
+    const newRanks = Object.create(null);
+    out.forEach(t => { newRanks[t.key] = t.rank; });
+    state.ranks = newRanks;
+    saveRanks();
+
+    return out;
   }
 
-  /* ------------------------------ Reddit (memes) ------------------------------ */
-  function pickMemeSubs(){
-    const src = String(selMemeSource?.value || "mix");
+  /* ==========================
+     Reddit memes (solo media)
+     ========================== */
+  function pickSubs(){
+    const src = state.settings.memeSource || "mix";
     return CFG.redditSubs[src] || CFG.redditSubs.mix;
   }
 
-  function pickMemeRangeHours(){
-    const v = Number(selMemeRange?.value || 48);
-    return (v === 24 || v === 48 || v === 72) ? v : 48;
+  function buildRedditUrl(sub, sort, limit){
+    const l = clamp(Number(limit || 45), 10, 120);
+    const s = sort || "new";
+    const t = (s === "top") ? "&t=day" : "";
+    return `${CFG.redditApiBase}/r/${encodeURIComponent(sub)}/${encodeURIComponent(s)}.json?raw_json=1&limit=${l}${t}&__ge=${Date.now()}`;
   }
 
-  function pickMemeSort(){
-    const v = String(selMemeSort?.value || "new");
-    return (["new","hot","top","best"].includes(v)) ? v : "new";
+  function coalesceMediaPost(p){
+    // si es crosspost, a veces el media está en el parent_list
+    if (p?.crosspost_parent_list?.length) {
+      const cp = p.crosspost_parent_list[0];
+      if (cp) return cp;
+    }
+    return p;
   }
 
-  function redditListingSort(sort){
-    // "best" es nuestro orden local, pero el fetch lo hago con "top" para tener material decente
-    if (sort === "best") return "top";
-    return sort;
-  }
+  function pickRedditMedia(p){
+    if (!p) return null;
+    const pp = coalesceMediaPost(p);
 
-  function memeKeyFromPost(p){
-    // Evito colisiones entre subs
-    return `m:${p?.subreddit || "r"}:${p?.id || hashStr(p?.permalink || p?.url || p?.title || "")}`;
-  }
-
-  function getLocalVote(key){
-    const v = Number(state.memeVotes?.[key] ?? 0);
-    return (v === 1 || v === -1) ? v : 0;
-  }
-
-  function setLocalVote(key, v){
-    const cur = getLocalVote(key);
-    const next = (cur === v) ? 0 : v; // toggle
-    state.memeVotes[key] = next;
-    saveMemeVotes();
-  }
-
-  function pickMemeMedia(post){
-    // Solo aceptamos media real
-    const isVideo = !!post?.is_video;
-    const hint = String(post?.post_hint || "");
-    const url = String(post?.url || "");
-    const perm = String(post?.permalink || "");
-
-    // Preview image (si existe)
-    const prevUrl =
-      post?.preview?.images?.[0]?.source?.url
-        ? String(post.preview.images[0].source.url).replaceAll("&amp;", "&")
-        : "";
-
-    // Reddit hosted video
-    const rv = post?.media?.reddit_video;
-    const fallbackVideo = rv?.fallback_url ? String(rv.fallback_url) : "";
+    // Video reddit
+    if (pp.is_video && pp.media?.reddit_video?.fallback_url) {
+      const vurl = decodeHtml(pp.media.reddit_video.fallback_url);
+      const poster = decodeHtml(pp.preview?.images?.[0]?.source?.url || "");
+      return { kind:"video", url:vurl, poster };
+    }
 
     // Gallery
-    const isGallery = !!post?.is_gallery && post?.media_metadata;
-
-    // 1) Vídeo
-    if (isVideo && fallbackVideo){
-      return { type:"video", url: fallbackVideo, link: CFG.redditBase + perm };
-    }
-
-    // 2) Gallery -> primera imagen
-    if (isGallery){
-      const meta = post.media_metadata;
-      const first = meta ? Object.values(meta)[0] : null;
-      const u = first?.s?.u ? String(first.s.u).replaceAll("&amp;", "&") : "";
-      if (u) return { type:"image", url: u, link: CFG.redditBase + perm };
-    }
-
-    // 3) Imagen directa / preview
-    if (hint === "image"){
-      const u = prevUrl || url;
-      if (u && u.startsWith("http")) return { type:"image", url: u, link: CFG.redditBase + perm };
-    }
-
-    // 4) Links típicos de imagen
-    if (url.match(/\.(png|jpe?g|gif|webp)(\?|$)/i)){
-      return { type:"image", url, link: CFG.redditBase + perm };
-    }
-
-    // Si no hay media válida, fuera
-    return { type:"", url:"", link: CFG.redditBase + perm };
-  }
-
-  async function fetchRedditJson(url, signal){
-    // 1) Directo
-    try{
-      const r = await fetchWithTimeout(url, CFG.FETCH_TIMEOUT_MS, signal);
-      if (r.ok) return await r.json();
-    }catch{}
-
-    // 2) Proxies (CORS)
-    for (const p of CFG.proxies){
-      try{
-        const r = await fetchWithTimeout(p + encodeURIComponent(url), CFG.FETCH_TIMEOUT_MS, signal);
-        if (r.ok) return await r.json();
-      }catch{}
-    }
-
-    throw new Error("No se pudo cargar Reddit (CORS/red)");
-  }
-
-  async function loadMemes(signal){
-    const subs = pickMemeSubs();
-    const sort = pickMemeSort();
-    const listing = redditListingSort(sort);
-
-    const rangeHours = pickMemeRangeHours();
-    const minUtc = (Date.now()/1000) - (rangeHours * 3600);
-
-    const collected = [];
-    const maxWant = clamp(state.settings.memeMaxPosts, 10, 120);
-
-    // Recojo un poco más para poder filtrar por media + rango
-    const perSubLimit = clamp(Math.ceil(maxWant / subs.length) * 3, 20, 80);
-
-    for (const sub of subs){
-      const u = `${CFG.redditBase}/r/${encodeURIComponent(sub)}/${listing}.json?raw_json=1&limit=${perSubLimit}`;
-      const data = await fetchRedditJson(u, signal);
-
-      const children = data?.data?.children || [];
-      for (const c of children){
-        const p = c?.data;
-        if (!p) continue;
-
-        // Rango tiempo
-        const created = Number(p.created_utc || 0);
-        if (!created || created < minUtc) continue;
-
-        // NSFW fuera
-        if (p.over_18) continue;
-
-        // Solo media real
-        const media = pickMemeMedia(p);
-        if (!media.type || !media.url) continue;
-
-        collected.push({
-          id: String(p.id || ""),
-          key: memeKeyFromPost(p),
-          title: String(p.title || "").trim(),
-          subreddit: String(p.subreddit || ""),
-          author: String(p.author || ""),
-          created_utc: created,
-          score: Number(p.score || 0),
-          comments: Number(p.num_comments || 0),
-          permalink: String(p.permalink || ""),
-          link: media.link,
-          media
-        });
-
-        if (collected.length >= maxWant * 2) break;
+    if (pp.is_gallery && pp.media_metadata){
+      const keys = Object.keys(pp.media_metadata);
+      if (keys.length){
+        const m = pp.media_metadata[keys[0]];
+        const s = m?.s?.u ? decodeHtml(m.s.u) : "";
+        if (s) return { kind:"img", url:s };
       }
-      if (collected.length >= maxWant * 2) break;
     }
 
-    // Dedup por key
-    const seen = new Set();
-    const uniq = [];
-    for (const m of collected){
-      if (seen.has(m.key)) continue;
-      seen.add(m.key);
-      uniq.push(m);
+    // Preview image
+    const prev = pp.preview?.images?.[0];
+    if (prev?.resolutions?.length){
+      const best = prev.resolutions[prev.resolutions.length - 1];
+      const url = decodeHtml(best?.url || prev?.source?.url || "");
+      if (url) return { kind:"img", url };
     }
 
-    // Orden final
-    if (sort === "best"){
-      // Prioriza tus upvotes y luego score
-      uniq.sort((a,b) => {
-        const av = getLocalVote(a.key);
-        const bv = getLocalVote(b.key);
-        if (bv !== av) return bv - av;
-        return (b.score - a.score);
-      });
-    }else if (sort === "new"){
-      uniq.sort((a,b) => b.created_utc - a.created_utc);
-    }else if (sort === "top"){
-      uniq.sort((a,b) => b.score - a.score);
-    }else{
-      // hot (mantengo aproximación)
-      uniq.sort((a,b) => (b.score*0.8 + b.comments*0.2) - (a.score*0.8 + a.comments*0.2));
+    // Direct url to image/gif
+    const u = decodeHtml(pp.url_overridden_by_dest || pp.url || "");
+    if (u){
+      const low = safeLower(u);
+      const isImg = /\.(png|jpg|jpeg|webp|gif)(\?|$)/.test(low);
+      const isMp4 = /\.(mp4)(\?|$)/.test(low);
+
+      if (low.endsWith(".gifv")) return { kind:"video", url: u.replace(/\.gifv(\?.*)?$/i, ".mp4$1") };
+      if (isMp4) return { kind:"video", url: u };
+      if (isImg) return { kind:"img", url: u };
     }
 
-    state.memes = uniq.slice(0, maxWant);
+    return null;
   }
 
-  /* ------------------------------ Render ------------------------------ */
+  function toMemeItem(child){
+    const d = child?.data;
+    if (!d) return null;
+    if (d.stickied) return null;
+
+    const createdMs = Number(d.created_utc || 0) * 1000;
+    if (!createdMs) return null;
+
+    const rangeH = Number(state.settings.memeRangeH || 48);
+    const maxAgeMs = clamp(rangeH, 24, 72) * 3600_000;
+    if ((Date.now() - createdMs) > maxAgeMs) return null;
+
+    const media = pickRedditMedia(d);
+    if (!media) return null;
+
+    const permalink = d.permalink ? (CFG.redditWebBase + d.permalink) : "";
+
+    return {
+      id: d.id,
+      title: d.title || "",
+      subreddit: d.subreddit || "",
+      author: d.author || "",
+      score: Number(d.score || 0),
+      comments: Number(d.num_comments || 0),
+      createdMs,
+      url: permalink,
+      media
+    };
+  }
+
+  async function fetchMemes(signal){
+    const subs = pickSubs();
+    const sort = state.settings.memeSort === "best" ? "new" : (state.settings.memeSort || "new");
+    const limit = state.settings.memeMaxPosts || 45;
+
+    const out = [];
+    const seen = new Set();
+
+    // Concurrencia baja para no colapsar
+    for (const sub of subs){
+      const u1 = buildRedditUrl(sub, sort, limit);
+
+      const urls = [u1];
+      // último recurso: proxy al endpoint web
+      const webUrl = `${CFG.redditWebBase}/r/${encodeURIComponent(sub)}/${encodeURIComponent(sort)}.json?raw_json=1&limit=${clamp(limit,10,120)}&__ge=${Date.now()}`;
+      for (const p of CFG.proxies) urls.push(p + encodeURIComponent(webUrl));
+
+      let json = null;
+      try{
+        json = await fetchJsonWithFallback(urls, signal);
+      }catch{
+        continue;
+      }
+
+      const children = json?.data?.children || [];
+      for (const ch of children){
+        const m = toMemeItem(ch);
+        if (!m) continue;
+        if (seen.has(m.id)) continue;
+        seen.add(m.id);
+        out.push(m);
+      }
+    }
+
+    return out;
+  }
+
+  /* ==========================
+     Render
+     ========================== */
+  function fmtAgo(ms){
+    const diff = Math.max(0, Date.now() - ms);
+    const min = Math.round(diff/60000);
+    if (min < 60) return `${min}m`;
+    const h = Math.round(min/60);
+    if (h < 48) return `${h}h`;
+    const d = Math.round(h/24);
+    return `${d}d`;
+  }
+
+  function buildTrendCard(t){
+    const key = favKeyTrend(t.label);
+    const favOn = isFav(key);
+
+    const delta = Number(t.delta || 0);
+    let deltaBadge = "";
+    if (delta > 0) deltaBadge = `<span class="badge good"><span class="ms" aria-hidden="true">arrow_drop_up</span>+${delta}</span>`;
+    else if (delta < 0) deltaBadge = `<span class="badge warn"><span class="ms" aria-hidden="true">arrow_drop_down</span>${delta}</span>`;
+    else deltaBadge = `<span class="badge"><span class="ms" aria-hidden="true">remove</span>0</span>`;
+
+    const cat = t.cat || "news";
+    const catLbl = (cat === "politics") ? "Política" : (cat === "sports") ? "Deportes" : (cat === "viral") ? "Viral" : "Noticias";
+
+    const img = t.sampleImage ? `<img class="toastImg" style="width:46px;height:46px;border-radius:16px" src="${esc(t.sampleImage)}" alt="">` : "";
+
+    const xUrl = CFG.xSearchBase + encodeURIComponent(t.label);
+
+    return `
+      <div class="card" data-kind="trend" data-key="${esc(t.key)}">
+        <div class="cardHead">
+          <div style="min-width:0">
+            <div class="cardTitle">${esc(t.rank)}. ${esc(t.label)}</div>
+            <div class="cardMeta">
+              <span class="badge pri"><span class="ms" aria-hidden="true">trending_up</span>${esc(String(t.score))}</span>
+              ${deltaBadge}
+              <span class="badge"><span class="ms" aria-hidden="true">category</span>${esc(catLbl)}</span>
+            </div>
+          </div>
+
+          <div class="cardActions">
+            <button class="aBtn star ${favOn ? "on" : ""}" type="button" data-act="fav" title="Favorito">
+              <span class="ms" aria-hidden="true">star</span>
+            </button>
+            <a class="aBtn" href="${esc(xUrl)}" target="_blank" rel="noreferrer" title="Buscar en X">
+              <span class="ms" aria-hidden="true">search</span>
+            </a>
+          </div>
+        </div>
+
+        ${img ? `<div style="padding:0 12px 12px 12px;display:flex;gap:10px;align-items:center">${img}<div style="color:rgba(255,255,255,.72);font-size:12.5px;line-height:1.35">Abrir búsqueda en X con un click</div></div>` : `<div style="padding:0 12px 12px 12px;color:rgba(255,255,255,.72);font-size:12.5px">Abrir búsqueda en X con un click</div>`}
+      </div>
+    `;
+  }
+
+  function buildMemeCard(m){
+    const fkey = favKeyMeme(m.id);
+    const favOn = isFav(fkey);
+
+    const v = getVote(m.id);
+    const upOn = (v === 1);
+    const downOn = (v === -1);
+
+    const noThumbs = !!state.settings.noThumbs;
+
+    let mediaHtml = "";
+    if (!noThumbs && m.media){
+      if (m.media.kind === "video"){
+        const poster = m.media.poster ? ` poster="${esc(m.media.poster)}"` : "";
+        mediaHtml = `
+          <div class="memeMedia">
+            <video src="${esc(m.media.url)}"${poster} controls playsinline muted preload="metadata"></video>
+          </div>
+        `;
+      }else{
+        mediaHtml = `
+          <div class="memeMedia">
+            <img src="${esc(m.media.url)}" alt="${esc(m.title)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+          </div>
+        `;
+      }
+    }
+
+    const metaLeft = `
+      <span class="badge"><span class="ms" aria-hidden="true">public</span>r/${esc(m.subreddit)}</span>
+      <span class="badge"><span class="ms" aria-hidden="true">schedule</span>${esc(fmtAgo(m.createdMs))}</span>
+    `;
+
+    const metaRight = `
+      <span class="badge"><span class="ms" aria-hidden="true">forum</span>${esc(String(m.comments))}</span>
+      <span class="badge"><span class="ms" aria-hidden="true">insights</span>${esc(String(m.score))}</span>
+    `;
+
+    return `
+      <div class="card" data-kind="meme" data-id="${esc(m.id)}">
+        <div class="cardHead">
+          <div style="min-width:0">
+            <div class="cardTitle">${esc(m.title)}</div>
+            <div class="cardMeta">${metaLeft} ${metaRight}</div>
+          </div>
+
+          <div class="cardActions">
+            <button class="aBtn star ${favOn ? "on" : ""}" type="button" data-act="fav" title="Favorito">
+              <span class="ms" aria-hidden="true">star</span>
+            </button>
+            <a class="aBtn" href="${esc(m.url)}" target="_blank" rel="noreferrer" title="Abrir post">
+              <span class="ms" aria-hidden="true">open_in_new</span>
+            </a>
+          </div>
+        </div>
+
+        ${mediaHtml}
+
+        <div class="memeFoot">
+          <div class="voteBox">
+            <button class="voteBtn up ${upOn ? "on" : ""}" type="button" data-act="up" title="Voto positivo">
+              <span class="ms" aria-hidden="true">thumb_up</span>
+            </button>
+            <button class="voteBtn down ${downOn ? "on" : ""}" type="button" data-act="down" title="Voto negativo">
+              <span class="ms" aria-hidden="true">thumb_down</span>
+            </button>
+            <span class="scorePill" title="Tu voto local (no afecta Reddit)">
+              <span class="ms" aria-hidden="true">how_to_vote</span>
+              <span class="scoreTxt">${v === 1 ? "+1" : v === -1 ? "-1" : "0"}</span>
+            </span>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="badge"><span class="ms" aria-hidden="true">person</span>${esc(m.author)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function render(){
-    setErr("");
+    hideErr();
+    showEmpty(false);
 
     if (!elList) return;
 
+    // set active tab states
+    setTabsActive(tabsView, "data-view", state.view);
+    setTabsActive(tabsCat, "data-cat", state.category);
+
     if (state.view === "memes"){
-      renderMemes();
-      return;
-    }
-
-    renderTrends();
-  }
-
-  function applyTrendFilter(){
-    const q = safeLower(inpQ?.value || "");
-    const cat = state.category;
-
-    const base = (state.view === "favs")
-      ? state.trends.filter(t => state.favs.has(t.key))
-      : state.trends.slice();
-
-    const out = [];
-    for (const t of base){
-      if (cat !== "all" && t.cat !== cat) continue;
-      if (q){
-        const hay = safeLower(t.title) + " " + safeLower(t.domain);
-        if (!hay.includes(q)) continue;
+      const items = state.memesFiltered || [];
+      if (!items.length){
+        elList.innerHTML = "";
+        showEmpty(true);
+        return;
       }
-      out.push(t);
+      elList.innerHTML = items.map(buildMemeCard).join("");
     }
-    state.filteredTrends = out;
-  }
-
-  function renderTrends(){
-    applyTrendFilter();
-
-    const arr = state.filteredTrends;
-    elList.innerHTML = "";
-
-    if (!arr.length){
-      setEmpty(true);
-      return;
-    }
-    setEmpty(false);
-
-    let i = 0;
-    for (const t of arr){
-      i++;
-      const div = document.createElement("div");
-      div.className = "trend";
-
-      const starOn = state.favs.has(t.key);
-
-      div.innerHTML = `
-        <div class="tRank">${i}</div>
-        <div class="tBody">
-          <div class="tTitle">${escapeHtml(t.title)}</div>
-          <div class="tMeta">
-            <span class="tagPill"><span class="ms sm" aria-hidden="true">category</span> ${escapeHtml(t.cat)}</span>
-            ${t.domain ? `<span class="tagPill"><span class="ms sm" aria-hidden="true">public</span> ${escapeHtml(t.domain)}</span>` : ""}
-            ${t.seen ? `<span class="tagPill"><span class="ms sm" aria-hidden="true">schedule</span> ${escapeHtml(t.seen)}</span>` : ""}
-          </div>
-          <div class="tBtns" style="margin-top:10px">
-            ${t.url ? `<a class="aBtn" href="${t.url}" target="_blank" rel="noreferrer"><span class="ms" aria-hidden="true">open_in_new</span> Abrir</a>` : ""}
-            <a class="aBtn" href="${CFG.xSearchBase}${encodeURIComponent(t.title)}" target="_blank" rel="noreferrer">
-              <span class="ms" aria-hidden="true">search</span> Buscar en X
-            </a>
-            <button class="aBtn star ${starOn ? "on" : ""}" type="button" data-act="fav" data-key="${escapeHtml(t.key)}" aria-label="Favorito">
-              <span class="ms ${starOn ? "fill" : ""}" aria-hidden="true">star</span>
-              ${starOn ? "Guardado" : "Guardar"}
-            </button>
-          </div>
-        </div>
-      `;
-
-      elList.appendChild(div);
-    }
-  }
-
-  function applyMemeFilter(){
-    const q = safeLower(inpQ?.value || "");
-    const out = [];
-
-    for (const m of state.memes){
-      if (q){
-        const hay = safeLower(m.title) + " " + safeLower(m.subreddit) + " " + safeLower(m.author);
-        if (!hay.includes(q)) continue;
+    else if (state.view === "all"){
+      const items = state.filtered || [];
+      if (!items.length){
+        elList.innerHTML = "";
+        showEmpty(true);
+        return;
       }
-      // Extra seguridad: solo media
-      if (!m.media?.type || !m.media?.url) continue;
-      out.push(m);
+      elList.innerHTML = items.map(buildTrendCard).join("");
+    }
+    else {
+      // favs
+      const favs = Array.from(state.favs);
+
+      const tFavs = [];
+      const mFavs = [];
+
+      for (const k of favs){
+        if (k.startsWith("t:")){
+          const key = k.slice(2);
+          const t = state.trends.find(x => x.key === key);
+          if (t) tFavs.push(t);
+        } else if (k.startsWith("m:")){
+          const id = k.slice(2);
+          const m = state.memes.find(x => x.id === id);
+          if (m) mFavs.push(m);
+        }
+      }
+
+      const merged = [];
+      // mostrar memes favoritos primero (la gente suele querer memes)
+      for (const m of mFavs) merged.push({ kind:"m", m });
+      for (const t of tFavs) merged.push({ kind:"t", t });
+
+      if (!merged.length){
+        elList.innerHTML = "";
+        showEmpty(true);
+        return;
+      }
+
+      elList.innerHTML = merged.map(x => {
+        if (x.kind === "m") return buildMemeCard(x.m);
+        return buildTrendCard(x.t);
+      }).join("");
     }
 
-    state.filteredMemes = out;
+    // listeners delegados (1 vez)
+    bindListDelegation();
   }
 
-  function fmtAgo(utcSec){
-    const s = Math.max(0, Math.floor(Date.now()/1000 - (utcSec || 0)));
-    const m = Math.floor(s/60);
-    const h = Math.floor(m/60);
-    const d = Math.floor(h/24);
-    if (d > 0) return `${d}d`;
-    if (h > 0) return `${h}h`;
-    if (m > 0) return `${m}m`;
-    return `${s}s`;
+  let listDelegated = false;
+  function bindListDelegation(){
+    if (listDelegated || !elList) return;
+    listDelegated = true;
+
+    elList.addEventListener("click", (e) => {
+      const card = e.target?.closest(".card");
+      if (!card) return;
+
+      const act = e.target?.closest("button,[data-act]")?.getAttribute("data-act");
+
+      // Favoritos
+      if (e.target?.closest("button.aBtn.star")){
+        if (card.getAttribute("data-kind") === "trend"){
+          const key = card.getAttribute("data-key");
+          if (!key) return;
+          const k = `t:${key}`;
+          toggleFav(k);
+          applyFiltersAndRender(true);
+        } else if (card.getAttribute("data-kind") === "meme"){
+          const id = card.getAttribute("data-id");
+          if (!id) return;
+          toggleFav(favKeyMeme(id));
+          applyFiltersAndRender(true);
+        }
+        return;
+      }
+
+      // Votos memes
+      if (card.getAttribute("data-kind") === "meme" && act){
+        const id = card.getAttribute("data-id");
+        if (!id) return;
+
+        if (act === "up"){
+          const cur = getVote(id);
+          setVote(id, cur === 1 ? 0 : 1);
+        } else if (act === "down"){
+          const cur = getVote(id);
+          setVote(id, cur === -1 ? 0 : -1);
+        }
+
+        // si estamos en best, reordenar
+        if (state.settings.memeSort === "best") applyFiltersAndRender(true);
+        else render();
+      }
+    }, { passive:true });
   }
 
-  function renderMemes(){
-    applyMemeFilter();
+  /* ==========================
+     Filtering
+     ========================== */
+  function applyFiltersAndRender(silentToast){
+    const q = safeLower(inpQ?.value || "").trim();
 
-    const arr = state.filteredMemes;
-    elList.innerHTML = "";
+    if (state.view === "memes"){
+      let arr = Array.isArray(state.memes) ? state.memes.slice() : [];
 
-    if (!arr.length){
-      setEmpty(true);
-      return;
-    }
-    setEmpty(false);
+      // buscador
+      if (q){
+        arr = arr.filter(m =>
+          safeLower(m.title).includes(q) ||
+          safeLower(m.subreddit).includes(q) ||
+          safeLower(m.author).includes(q)
+        );
+      }
 
-    for (const m of arr){
-      const vote = getLocalVote(m.key);
-      const div = document.createElement("div");
-      div.className = "memeCard";
-
-      const mediaHtml = state.settings.noThumbs
-        ? ""
-        : (m.media.type === "video"
-            ? `<div class="memeMedia"><video controls preload="metadata" src="${escapeHtml(m.media.url)}"></video></div>`
-            : `<div class="memeMedia"><img loading="lazy" decoding="async" src="${escapeHtml(m.media.url)}" alt="" /></div>`
-          );
-
-      div.innerHTML = `
-        <div class="memeVote" aria-label="Votos">
-          <button class="voteBtn ${vote === 1 ? "on up" : ""}" type="button" data-act="vote" data-v="1" data-key="${escapeHtml(m.key)}" aria-label="Upvote">
-            <span class="ms" aria-hidden="true">keyboard_arrow_up</span>
-          </button>
-          <div class="voteScore" title="Tu voto se guarda localmente">${escapeHtml(String(m.score))}</div>
-          <button class="voteBtn ${vote === -1 ? "on down" : ""}" type="button" data-act="vote" data-v="-1" data-key="${escapeHtml(m.key)}" aria-label="Downvote">
-            <span class="ms" aria-hidden="true">keyboard_arrow_down</span>
-          </button>
-        </div>
-
-        <div class="memeMain">
-          <div class="memeHead">
-            <div class="memeMeta">
-              <div class="memeSub">r/${escapeHtml(m.subreddit)}</div>
-              <div class="memeBy">u/${escapeHtml(m.author)} • ${fmtAgo(m.created_utc)} • ${escapeHtml(String(m.comments))} com.</div>
-            </div>
-            <div class="tagPill" title="Solo memes con media">
-              <span class="ms sm" aria-hidden="true">${m.media.type === "video" ? "smart_display" : "image"}</span>
-              ${m.media.type === "video" ? "Vídeo" : "Imagen"}
-            </div>
-          </div>
-
-          <div class="memeTitle">${escapeHtml(m.title)}</div>
-
-          ${mediaHtml}
-
-          <div class="memeFoot">
-            <div class="memeStats">
-              <span class="tagPill"><span class="ms sm" aria-hidden="true">thumb_up</span> Score: ${escapeHtml(String(m.score))}</span>
-              <span class="tagPill"><span class="ms sm" aria-hidden="true">chat_bubble</span> ${escapeHtml(String(m.comments))}</span>
-            </div>
-
-            <div class="memeBtns">
-              <a class="aBtn" href="${escapeHtml(m.link)}" target="_blank" rel="noreferrer">
-                <span class="ms" aria-hidden="true">open_in_new</span> Abrir
-              </a>
-              <button class="aBtn" type="button" data-act="copy" data-url="${escapeHtml(m.link)}">
-                <span class="ms" aria-hidden="true">content_copy</span> Copiar link
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-
-      elList.appendChild(div);
-    }
-  }
-
-  /* ------------------------------ Actions ------------------------------ */
-  function onListClick(e){
-    const t = e.target?.closest?.("[data-act]");
-    if (!t) return;
-
-    const act = t.getAttribute("data-act");
-
-    if (act === "fav"){
-      const key = t.getAttribute("data-key") || "";
-      if (!key) return;
-
-      if (state.favs.has(key)) state.favs.delete(key);
-      else state.favs.add(key);
-
-      saveFavs();
-      toast("Favoritos", state.favs.has(key) ? "Guardado" : "Quitado");
-
-      // Re-render
-      render();
-      return;
-    }
-
-    if (act === "vote"){
-      const key = t.getAttribute("data-key") || "";
-      const v = Number(t.getAttribute("data-v") || "0");
-      if (!key || (v !== 1 && v !== -1)) return;
-
-      setLocalVote(key, v);
-
-      // Si el orden es “best”, re-ordeno al vuelo
-      if (state.view === "memes" && pickMemeSort() === "best"){
-        state.memes.sort((a,b) => {
-          const av = getLocalVote(a.key);
-          const bv = getLocalVote(b.key);
-          if (bv !== av) return bv - av;
-          return (b.score - a.score);
+      // orden best (combina reddit score + voto local)
+      if (state.settings.memeSort === "best"){
+        arr.sort((a,b) => {
+          const av = getVote(a.id), bv = getVote(b.id);
+          const as = (a.score || 0) + av * 350;
+          const bs = (b.score || 0) + bv * 350;
+          if (bs !== as) return bs - as;
+          return (b.createdMs - a.createdMs);
         });
+      } else {
+        // mantener orden por fetch (new/hot/top) + fallback a recencia
+        arr.sort((a,b) => (b.createdMs - a.createdMs));
       }
 
-      render();
-      return;
+      state.memesFiltered = arr.slice(0, state.settings.memeMaxPosts || 45);
+    }
+    else if (state.view === "all"){
+      let arr = Array.isArray(state.trends) ? state.trends.slice() : [];
+
+      // category
+      if (state.category && state.category !== "all"){
+        arr = arr.filter(t => t.cat === state.category);
+      }
+
+      // search
+      if (q){
+        arr = arr.filter(t => safeLower(t.label).includes(q));
+      }
+
+      state.filtered = arr;
+    }
+    else {
+      // favs view: no extra filter aquí (se aplica en render)
     }
 
-    if (act === "copy"){
-      const url = t.getAttribute("data-url") || "";
-      if (!url) return;
-      navigator.clipboard?.writeText?.(url).then(
-        () => toast("Copiado", "Link copiado al portapapeles"),
-        () => toast("Copiado", "No se pudo copiar (permiso/navegador)")
-      );
-      return;
+    render();
+    if (!silentToast && state.settings.alerts) {
+      setTimeout(() => {
+        if (state.view === "memes") toast("Memes", "Filtro aplicado.");
+        else if (state.view === "all") toast("Tendencias", "Filtro aplicado.");
+        else toast("Favoritos", "Lista actualizada.");
+      }, 50);
     }
   }
 
-  function bindUI(){
-    // Clicks en lista (delegación)
-    if (elList){
-      elList.addEventListener("click", onListClick);
-      state._cleanups.push(() => elList.removeEventListener("click", onListClick));
+  /* ==========================
+     Refresh pipeline
+     ========================== */
+  async function refreshNow(onlyTrends){
+    const aborter = makeAbort();
+    hideErr();
+    showEmpty(false);
+    setText(elLast, nowISO());
+    setText(elNet, navigator.onLine ? "OK" : "OFF");
+
+    try{
+      if (state.view === "all" || onlyTrends){
+        const arts = await fetchGdeltArticles(aborter.signal);
+        state.trends = computeTrends(arts);
+      } else {
+        state.memes = await fetchMemes(aborter.signal);
+      }
+
+      // si estamos en favs, conviene refrescar ambas fuentes al pulsar actualizar
+      if (state.view === "favs" && !onlyTrends){
+        try{
+          const arts = await fetchGdeltArticles(aborter.signal);
+          state.trends = computeTrends(arts);
+        }catch{}
+        try{
+          state.memes = await fetchMemes(aborter.signal);
+        }catch{}
+      }
+
+      applyFiltersAndRender(true);
+
+      if (state.settings.alerts){
+        toast("OK", "Actualizado.");
+      }
+
+      // ticker content
+      rebuildTicker();
+
+    }catch(e){
+      showErr(`No se pudo actualizar. ${e?.message ? `(${e.message})` : ""}`);
+      if (state.settings.alerts) toast("Error", "No se pudo actualizar. Revisa conexión o filtros.");
     }
-
-    btnRefresh?.addEventListener("click", () => refreshNow(true));
-    btnReloadX?.addEventListener("click", () => mountTimeline(true));
-    btnCompact?.addEventListener("click", toggleCompact);
-
-    btnTicker?.addEventListener("click", () => {
-      state.settings.tickerEnabled = !state.settings.tickerEnabled;
-      btnTicker.setAttribute("aria-pressed", state.settings.tickerEnabled ? "true" : "false");
-      setTickerVisible(state.settings.tickerEnabled);
-      saveSettings();
-    });
-
-    tickerClose?.addEventListener("click", () => {
-      state.settings.tickerEnabled = false;
-      btnTicker?.setAttribute("aria-pressed", "false");
-      setTickerVisible(false);
-      saveSettings();
-    });
-
-    btnConfig?.addEventListener("click", openConfig);
-    cfgClose?.addEventListener("click", closeConfig);
-
-    cfgSave?.addEventListener("click", () => {
-      state.settings.autoRefresh = !!cfgAuto?.checked;
-
-      const sec = clamp(Number(cfgEvery?.value || 120), 35, 900);
-      state.settings.refreshEveryMs = sec * 1000;
-
-      state.settings.maxTrends = clamp(Number(cfgMaxTrends?.value || 35), 10, 80);
-      state.settings.alertsEnabled = !!cfgAlerts?.checked;
-      state.settings.tickerEnabled = !!cfgTicker?.checked;
-      state.settings.tickerSpeedSec = clamp(Number(cfgTickerSpeed?.value || 28), 12, 120);
-      state.settings.memeMaxPosts = clamp(Number(cfgMemeMaxPosts?.value || 45), 10, 120);
-      state.settings.noThumbs = !!cfgNoThumbs?.checked;
-
-      saveSettings();
-      syncUiFromState();
-      closeConfig();
-
-      // Reaplico/recargo
-      refreshNow(true);
-      toast("Config", "Guardado");
-    });
-
-    // Inputs que refrescan
-    inpQ?.addEventListener("input", () => render());
-
-    selLang?.addEventListener("change", () => { saveSettings(); refreshNow(true); });
-    selWindow?.addEventListener("change", () => { saveSettings(); refreshNow(true); });
-    selGeo?.addEventListener("change", () => { saveSettings(); refreshNow(true); });
-
-    selMemeSource?.addEventListener("change", () => refreshNow(true));
-    selMemeSort?.addEventListener("change", () => refreshNow(true));
-    selMemeRange?.addEventListener("change", () => refreshNow(true));
-
-    // Tabs view
-    tabsView?.addEventListener("click", (e) => {
-      const b = e.target?.closest?.(".tab");
-      if (!b) return;
-      const v = b.getAttribute("data-view");
-      if (!v) return;
-      state.view = v;
-      setActiveTab(tabsView, "data-view", v);
-      syncUiFromState();
-      render();
-      // Si cambia a tendencias/favs, aseguro que haya datos
-      if ((v === "all" || v === "favs") && !state.trends.length) refreshNow(true);
-      if (v === "memes" && !state.memes.length) refreshNow(true);
-    });
-
-    // Tabs category
-    tabsCat?.addEventListener("click", (e) => {
-      const b = e.target?.closest?.(".tab");
-      if (!b) return;
-      const c = b.getAttribute("data-cat");
-      if (!c) return;
-      state.category = c;
-      setActiveTab(tabsCat, "data-cat", c);
-      render();
-    });
-
-    // Net status
-    const onNet = () => {
-      const on = navigator.onLine !== false;
-      if (elNet) elNet.textContent = on ? "Online" : "Offline";
-    };
-    window.addEventListener("online", onNet);
-    window.addEventListener("offline", onNet);
-    state._cleanups.push(() => {
-      window.removeEventListener("online", onNet);
-      window.removeEventListener("offline", onNet);
-    });
-    onNet();
   }
 
-  /* ------------------------------ Refresh logic ------------------------------ */
-  function startAutoRefresh(){
+  function setupAutoRefresh(){
     try{ clearInterval(state.refreshTimer); }catch{}
-    if (!state.settings.autoRefresh) return;
+    state.refreshTimer = null;
+
+    if (!state.settings.auto) return;
+
+    const ms = clamp(Number(state.settings.everySec || 120), 35, 900) * 1000;
+    const safeMs = Math.max(ms, CFG.MIN_REFRESH_MS);
 
     state.refreshTimer = setInterval(() => {
-      refreshNow(false);
-    }, clamp(state.settings.refreshEveryMs, CFG.MIN_REFRESH_MS, 900_000));
+      // refresca lo que se esté viendo
+      refreshNow(state.view === "all");
+    }, safeMs);
   }
 
-  function buildTickerFromTrends(){
+  /* ==========================
+     Ticker
+     ========================== */
+  function rebuildTicker(){
     if (!tickerTrack) return;
-    const arr = state.trends.slice(0, 18);
-    if (!arr.length){
+
+    const items = [];
+    if (state.view === "all" || state.view === "favs"){
+      const base = (state.view === "all") ? (state.filtered || state.trends || []) : (state.trends || []);
+      for (const t of base.slice(0, 20)){
+        items.push(`T${t.rank}: ${t.label}`);
+      }
+    }
+    if (state.view === "memes" || state.view === "favs"){
+      const base = (state.view === "memes") ? (state.memesFiltered || state.memes || []) : (state.memes || []);
+      for (const m of base.slice(0, 20)){
+        items.push(`r/${m.subreddit}: ${m.title}`);
+      }
+    }
+
+    if (!items.length){
       tickerTrack.innerHTML = "";
       return;
     }
 
-    // Duplico para bucle infinito suave
-    const items = arr.concat(arr);
-    tickerTrack.innerHTML = items.map(t => `
-      <span class="tickerItem">
-        <span class="ms sm" aria-hidden="true">trending_up</span>
-        ${escapeHtml(t.title)}
-      </span>
-    `).join("");
+    // duplicar para scroll infinito
+    const clean = items.map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const doubled = clean.concat(clean);
+
+    tickerTrack.innerHTML = doubled.map(txt => `<span class="tickerItem"><span class="ms" aria-hidden="true">bolt</span>${esc(txt)}</span>`).join("");
+    updateTickerSpeed();
   }
 
-  async function refreshNow(userTriggered){
+  /* ==========================
+     Service Worker (safe)
+     ========================== */
+  async function setupServiceWorker(){
+    if (!("serviceWorker" in navigator)) return;
     try{
-      state.aborter?.abort?.();
-    }catch{}
-    state.aborter = new AbortController();
-    const { signal } = state.aborter;
+      const reg = await navigator.serviceWorker.register(CFG.SW_URL, { updateViaCache: "none" });
+      state.swReg = reg;
 
-    if (userTriggered) toast("Actualizando", "Cargando datos…");
+      // Poll updates
+      state.swTick = setInterval(() => {
+        try{ reg.update(); }catch{}
+      }, CFG.SW_UPDATE_EVERY_MS);
 
-    try{
-      // Memes
-      if (state.view === "memes"){
-        await loadMemes(signal);
-      }
+      // Reload once when new SW takes control
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        const done = sessionStorage.getItem(CFG.SS_SW_RELOADED);
+        if (done) return;
+        sessionStorage.setItem(CFG.SS_SW_RELOADED, "1");
+        location.reload();
+      });
 
-      // Tendencias (las cargo siempre en background para ticker/favs)
-      const gd = await getGdeltData(signal);
-      state.trends = normalizeTrends(gd);
-
-      buildTickerFromTrends();
-      setLast();
-
-      // Render
-      render();
-
-    }catch(err){
-      if (String(err?.name || "") === "AbortError") return;
-      setErr(`Error: ${String(err?.message || err)}`);
-      if (userTriggered) toast("Error", "No se pudo actualizar");
+    }catch{
+      // ignore
     }
   }
 
-  /* ------------------------------ Hash ------------------------------ */
-  function hashStr(s){
-    // Hash simple (estable) para keys
-    s = String(s ?? "");
-    let h = 2166136261;
-    for (let i=0; i<s.length; i++){
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return (h >>> 0).toString(16);
-  }
-
-  /* ------------------------------ Init ------------------------------ */
-  function init(){
+  /* ==========================
+     Boot
+     ========================== */
+  async function init(){
     loadSettings();
     bindUI();
-    syncUiFromState();
-
-    // Tabs default
-    setActiveTab(tabsView, "data-view", state.view);
-    setActiveTab(tabsCat, "data-cat", state.category);
+    setupAutoRefresh();
+    setupServiceWorker();
 
     // Timeline
     mountTimeline(false);
 
-    // Primera carga
+    // First load: memes
     refreshNow(false);
-
-    // Auto-refresh
-    startAutoRefresh();
   }
 
-  init();
+  state._cleanups.push(() => {
+    try{ clearInterval(state.refreshTimer); }catch{}
+    try{ clearInterval(state.swTick); }catch{}
+    try{ state.aborter?.abort(); }catch{}
+  });
 
+  window.__GLOBAL_EYE_TRENDS__.cleanup = () => {
+    for (const fn of state._cleanups) { try{ fn(); }catch{} }
+  };
+
+  init();
 })();

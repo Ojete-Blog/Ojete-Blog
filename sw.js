@@ -1,11 +1,16 @@
-/* sw.js — GlobalEye Trends — FINAL (hardened) */
 "use strict";
 
-const SW_VERSION = "ge-trends-sw-final-3";
-const CORE_CACHE = `${SW_VERSION}::core`;
-const RUNTIME_CACHE = `${SW_VERSION}::runtime`;
+/* ==========================================================
+   Service Worker — GlobalEye Trends (Final)
+   - Core cache: shell de la app
+   - HTML: network-first (evita quedarte con index viejo)
+   - Runtime: cache para recursos internos
+   ========================================================== */
 
-// Ajusta solo si cambias el nombre real de archivos
+const SW_VERSION = "ge-trends-sw-final-3";
+const CACHE_CORE = `${SW_VERSION}::core`;
+const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
+
 const CORE = [
   "./",
   "./index.html",
@@ -19,60 +24,20 @@ const CORE = [
   "./banner_ojo.jpg"
 ];
 
-// Parámetros típicos de cache-bust
-const STRIP_QS = ["v", "cb", "_", "__tnp", "__ge", "__ts", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"];
-
-function normalizeCacheKey(input) {
+function normalizeCacheKey(reqUrl){
   try{
-    const u = new URL(typeof input === "string" ? input : input.url, self.location.origin);
-    STRIP_QS.forEach(k => u.searchParams.delete(k));
-    // Normaliza "./" y "/" para evitar duplicados en cache
-    if (u.pathname.endsWith("/")) u.pathname = u.pathname.replace(/\/+$/, "/");
+    const u = new URL(reqUrl, self.location.origin);
+    ["v","cb","_","__tnp","__ge","__ts"].forEach(k => u.searchParams.delete(k));
     return u.toString();
   }catch{
-    return typeof input === "string" ? input : input.url;
-  }
-}
-
-function isCoreRequest(urlObj) {
-  const p = urlObj.pathname;
-  // Matches para core (soporta path base de GH Pages)
-  // Ej: /repo/index.html -> endsWith(/index.html)
-  return CORE.some((item) => {
-    const rel = item.replace("./", "/");
-    const rel2 = item.replace("./", "");
-    return p.endsWith(rel) || p.endsWith("/" + rel2) || p.endsWith(rel2);
-  });
-}
-
-function isHtmlRequest(req) {
-  const accept = req.headers.get("accept") || "";
-  return accept.includes("text/html");
-}
-
-async function cachePutNormalized(cacheName, reqOrUrl, res) {
-  try{
-    const cache = await caches.open(cacheName);
-    const key = normalizeCacheKey(reqOrUrl);
-    await cache.put(key, res);
-  }catch{}
-}
-
-async function cacheMatchNormalized(cacheName, reqOrUrl) {
-  try{
-    const cache = await caches.open(cacheName);
-    const key = normalizeCacheKey(reqOrUrl);
-    return await cache.match(key);
-  }catch{
-    return null;
+    return reqUrl;
   }
 }
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     try{
-      const cache = await caches.open(CORE_CACHE);
-      // addAll usa Request exacto; luego normalizamos en fetch igualmente
+      const cache = await caches.open(CACHE_CORE);
       await cache.addAll(CORE);
     }catch{}
     self.skipWaiting();
@@ -81,13 +46,11 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    try{
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => {
-        if (!k.startsWith(SW_VERSION)) return caches.delete(k);
-        return Promise.resolve();
-      }));
-    }catch{}
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => {
+      if (!k.startsWith(SW_VERSION)) return caches.delete(k);
+      return Promise.resolve();
+    }));
     self.clients.claim();
   })());
 });
@@ -96,28 +59,12 @@ self.addEventListener("message", (event) => {
   const msg = event?.data;
   if (!msg) return;
 
-  if (msg.type === "SKIP_WAITING") {
-    self.skipWaiting();
-    return;
-  }
+  if (msg.type === "SKIP_WAITING") self.skipWaiting();
 
   if (msg.type === "CLEAR_CACHES") {
     event.waitUntil((async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    })());
-    return;
-  }
-
-  // Opcional: purga + recarga clientes (si lo llamas desde app.js)
-  if (msg.type === "PURGE_AND_RELOAD") {
-    event.waitUntil((async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const c of clients) {
-        try{ c.navigate(c.url); }catch{}
-      }
+      await Promise.all(keys.map(k => caches.delete(k)));
     })());
   }
 });
@@ -127,65 +74,58 @@ self.addEventListener("fetch", (event) => {
   if (!req || req.method !== "GET") return;
 
   const url = new URL(req.url);
-
-  // Solo mismo origen (tu GH pages)
   if (url.origin !== self.location.origin) return;
 
-  const html = isHtmlRequest(req);
-  const core = isCoreRequest(url);
+  const isHtml = req.headers.get("accept")?.includes("text/html");
+  const path = url.pathname.replace(self.location.pathname.replace(/\/[^/]*$/, "/"), "/");
+  const isCore = CORE.some(p => {
+    const pp = p.replace("./", "/");
+    return url.pathname.endsWith(pp) || url.pathname.endsWith(p.replace("./",""));
+  });
 
-  // 1) HTML: network-first (evita quedarte pegado con index viejo)
-  if (html) {
+  // HTML: network-first
+  if (isHtml) {
     event.respondWith((async () => {
       try{
         const net = await fetch(req, { cache: "no-store" });
-        await cachePutNormalized(CORE_CACHE, req, net.clone());
+        const cache = await caches.open(CACHE_CORE);
+        cache.put(req, net.clone());
         return net;
       }catch{
-        const cached = await cacheMatchNormalized(CORE_CACHE, req);
-        if (cached) return cached;
-
-        // Fallback a index.html cacheado
-        const fallback = await cacheMatchNormalized(CORE_CACHE, "./index.html");
-        return fallback || new Response("Offline", { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } });
+        const cache = await caches.open(CACHE_CORE);
+        const cached = await cache.match(req);
+        return cached || caches.match("./index.html");
       }
     })());
     return;
   }
 
-  // 2) CORE: stale-while-revalidate (rápido + se actualiza)
-  if (core) {
+  // Core assets: cache-first + refresh
+  if (isCore) {
     event.respondWith((async () => {
-      const cached = await cacheMatchNormalized(CORE_CACHE, req);
+      const cache = await caches.open(CACHE_CORE);
+      const cached = await cache.match(req);
 
-      const fetcher = (async () => {
-        try{
-          const net = await fetch(req, { cache: "no-store" });
-          await cachePutNormalized(CORE_CACHE, req, net.clone());
-          return net;
-        }catch{
-          return null;
-        }
-      })();
+      const fetcher = fetch(req, { cache: "no-store" }).then(async (net) => {
+        cache.put(req, net.clone());
+        return net;
+      }).catch(() => null);
 
       return cached || (await fetcher) || fetch(req);
     })());
     return;
   }
 
-  // 3) RUNTIME: stale-while-revalidate con key normalizada
+  // Runtime: cache-first (normalized key) + refresh
   event.respondWith((async () => {
-    const cached = await cacheMatchNormalized(RUNTIME_CACHE, req);
+    const cache = await caches.open(CACHE_RUNTIME);
+    const key = normalizeCacheKey(req.url);
 
-    const fetcher = (async () => {
-      try{
-        const net = await fetch(req, { cache: "no-store" });
-        await cachePutNormalized(RUNTIME_CACHE, req, net.clone());
-        return net;
-      }catch{
-        return null;
-      }
-    })();
+    const cached = await cache.match(key);
+    const fetcher = fetch(req, { cache: "no-store" }).then(async (net) => {
+      cache.put(key, net.clone());
+      return net;
+    }).catch(() => null);
 
     return cached || (await fetcher) || fetch(req);
   })());
