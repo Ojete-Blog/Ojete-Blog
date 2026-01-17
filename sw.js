@@ -1,16 +1,22 @@
 /* sw.js — GlobalEye Memes+Trends (GitHub Pages hardened) */
 "use strict";
 
-const SW_VERSION = "ge-memes-trends-sw-2";
+const SW_VERSION = "ge-memes-trends-sw-3"; // ⬅️ bump por la actualización de index/styles
 const CACHE_CORE = `${SW_VERSION}::core`;
 const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
 
+/**
+ * CORE: shell + assets críticos
+ * NOTA: mantengo compat con tus nombres existentes.
+ * Si algún asset no existe, el SW no revienta: simplemente lo ignora.
+ */
 const CORE = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",
+
   "./logo_ojo_png.png",
   "./logo_ojo_favicon.png",
   "./logo_ojo.jpg",
@@ -19,9 +25,9 @@ const CORE = [
 ];
 
 const STRIP_QS = [
-  "v","cb","_","__tnp","__ge","__ts",
-  "utm_source","utm_medium","utm_campaign","utm_term","utm_content",
-  "source","view"
+  "v", "cb", "_", "__tnp", "__ge", "__ts",
+  "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+  "source", "view"
 ];
 
 function normalizeCacheKey(reqOrUrl){
@@ -42,8 +48,8 @@ function isHtml(req){
 function isCorePath(urlObj){
   const path = urlObj.pathname;
   return CORE.some(p => {
-    const a = p.replace("./","/");
-    const b = p.replace("./","");
+    const a = p.replace("./","/");   // "./index.html" -> "/index.html"
+    const b = p.replace("./","");    // "./index.html" -> "index.html"
     return path.endsWith(a) || path.endsWith("/"+b) || path.endsWith(b);
   });
 }
@@ -66,33 +72,45 @@ async function cacheMatchNormalized(cacheName, reqOrUrl){
   }
 }
 
+async function safePrecacheCore(){
+  try{
+    // Evita quedarte pegado con un core viejo
+    await caches.delete(CACHE_CORE).catch(()=>{});
+
+    const cache = await caches.open(CACHE_CORE);
+
+    await Promise.all(CORE.map(async (p) => {
+      try{
+        const req = new Request(p, { cache: "reload" });
+        const res = await fetch(req);
+        if (res && res.ok) {
+          await cachePutNormalized(CACHE_CORE, p, res.clone());
+        }
+      }catch{}
+    }));
+  }catch{}
+}
+
+async function cleanupOldCaches(){
+  try{
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => {
+      if (!k.startsWith(SW_VERSION)) return caches.delete(k);
+      return Promise.resolve();
+    }));
+  }catch{}
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
-    try{
-      await caches.delete(CACHE_CORE).catch(()=>{});
-      const cache = await caches.open(CACHE_CORE);
-
-      await Promise.all(CORE.map(async (p) => {
-        try{
-          const req = new Request(p, { cache: "reload" });
-          const res = await fetch(req);
-          if (res && res.ok) await cachePutNormalized(CACHE_CORE, p, res.clone());
-        }catch{}
-      }));
-    }catch{}
+    await safePrecacheCore();
     self.skipWaiting();
   })());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    try{
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => {
-        if (!k.startsWith(SW_VERSION)) return caches.delete(k);
-        return Promise.resolve();
-      }));
-    }catch{}
+    await cleanupOldCaches();
     self.clients.claim();
   })());
 });
@@ -101,24 +119,41 @@ self.addEventListener("message", (event) => {
   const msg = event?.data;
   if (!msg) return;
 
-  if (msg.type === "SKIP_WAITING") self.skipWaiting();
+  if (msg.type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
 
   if (msg.type === "CLEAR_CACHES") {
     event.waitUntil((async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
+      try{
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }catch{}
     })());
+    return;
   }
 
   if (msg.type === "PURGE_AND_RELOAD") {
     event.waitUntil((async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const c of clients) {
-        try{ c.navigate(c.url); }catch{}
-      }
+      try{
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }catch{}
+      try{
+        const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        for (const c of clients) {
+          try{ c.navigate(c.url); }catch{}
+        }
+      }catch{}
     })());
+    return;
+  }
+
+  // Opcional: si quieres “recalentar” el core desde la app
+  if (msg.type === "REPRECACHE_CORE") {
+    event.waitUntil(safePrecacheCore());
+    return;
   }
 });
 
@@ -128,11 +163,13 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
+  // GitHub Pages: no cacheamos cross-origin (Reddit/GDELT/X/etc)
   if (url.origin !== self.location.origin) return;
 
   const html = isHtml(req);
   const core = isCorePath(url);
 
+  // HTML: network-first + fallback cache + fallback index
   if (html) {
     event.respondWith((async () => {
       try{
@@ -153,6 +190,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // CORE: cache-first con refresh en background (stale-while-revalidate suave)
   if (core) {
     event.respondWith((async () => {
       const cached = await cacheMatchNormalized(CACHE_CORE, req);
@@ -172,6 +210,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // RUNTIME: cache-first (rápido) + refresh; útil para assets locales extra
   event.respondWith((async () => {
     const cached = await cacheMatchNormalized(CACHE_RUNTIME, req);
 

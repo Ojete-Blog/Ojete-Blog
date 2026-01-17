@@ -1,17 +1,18 @@
-/* app.js — GlobalEye Memes + Trends + X timeline (FINAL+)
+/* app.js — GlobalEye Memes + Trends + X timeline (FINAL+ DOWNLOADS)
    ✅ Compatible con tu index.html actual (IDs: tabMemes/tabTrends/tabFavs, btnRefresh, xTimelineMount, memesList...)
    ✅ Memes: SOLO posts con imagen o vídeo (extracción robusta + fallbacks + onerror visible)
+   ✅ Descarga: botón “Descargar” para imágenes y vídeos (fetch→blob si posible + fallback si CORS)
    ✅ Tendencias: GDELT (open data) con parse seguro + “+INFO” por tarjeta (enlaces + ejemplos)
    ✅ Timeline X: montaje robusto (sin duplicar script) + fallback RSS (Nitter/proxies) si bloqueado
+   ✅ Fallback RSS: intenta extraer media (img/video) si existe + descarga
    ✅ Votos y favoritos persistentes (localStorage)
    ✅ Anti-doble-carga + cleanup (intervalos, listeners) para evitar estados raros en recargas/SW
-   ✅ SIN fugas: listeners dinámicos NO se registran en el cleanup global
 */
 (() => {
   "use strict";
 
   const APP_VERSION = "ge-memes-trends-final";
-  const BUILD_ID = "2026-01-17c";
+  const BUILD_ID = "2026-01-17d";
 
   /* ───────────────────────────── Guard + Cleanup ───────────────────────────── */
   const TAG = `${APP_VERSION}:${BUILD_ID}`;
@@ -131,6 +132,58 @@
     }catch{
       return "";
     }
+  }
+
+  function openInNew(url){
+    const u = safeUrl(url);
+    if (!u) return;
+    try{ window.open(u, "_blank", "noreferrer"); }catch{}
+  }
+
+  /* ───────────────────────────── Mini Toast (sin depender de tu CSS) ───────────────────────────── */
+  let _toastEl = null;
+  function toast(msg, kind="info", ms=2400){
+    try{
+      if (!_toastEl){
+        _toastEl = document.createElement("div");
+        _toastEl.id = "geToast";
+        _toastEl.style.cssText = [
+          "position:fixed",
+          "left:50%",
+          "bottom:18px",
+          "transform:translateX(-50%)",
+          "z-index:99999",
+          "max-width:min(760px,calc(100vw - 24px))",
+          "padding:10px 12px",
+          "border-radius:12px",
+          "font:600 13px/1.35 Inter,system-ui,Segoe UI,Roboto,Arial",
+          "letter-spacing:.2px",
+          "backdrop-filter:blur(8px)",
+          "background:rgba(18,18,22,.85)",
+          "color:#fff",
+          "border:1px solid rgba(255,255,255,.10)",
+          "box-shadow:0 10px 30px rgba(0,0,0,.35)",
+          "opacity:0",
+          "transition:opacity .18s ease, transform .18s ease",
+          "pointer-events:none"
+        ].join(";");
+        document.body.appendChild(_toastEl);
+      }
+      const col = (kind === "ok") ? "rgba(50,210,140,.18)"
+                : (kind === "warn") ? "rgba(255,196,72,.18)"
+                : (kind === "err") ? "rgba(255,90,90,.18)"
+                : "rgba(120,170,255,.18)";
+      _toastEl.style.background = `linear-gradient(180deg, ${col}, rgba(18,18,22,.85))`;
+      _toastEl.textContent = String(msg || "");
+      _toastEl.style.opacity = "1";
+      _toastEl.style.transform = "translateX(-50%) translateY(-2px)";
+      clearTracked(_toastEl.__t);
+      _toastEl.__t = setTimeoutSafe(() => {
+        if (!_toastEl) return;
+        _toastEl.style.opacity = "0";
+        _toastEl.style.transform = "translateX(-50%) translateY(2px)";
+      }, ms);
+    }catch{}
   }
 
   /* ───────────────────────────── Storage ───────────────────────────── */
@@ -314,8 +367,121 @@
     ];
   }
 
+  /* ───────────────────────────── Descargas (IMG/MP4) ───────────────────────────── */
+  function sanitizeFilename(name){
+    return String(name || "archivo")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s.\-()+\[\]#@]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 90) || "archivo";
+  }
+
+  function extFromUrl(url, fallbackExt){
+    try{
+      const u = new URL(url);
+      const p = u.pathname || "";
+      const m = p.match(/\.([a-z0-9]{2,5})$/i);
+      if (m && m[1]) return "." + m[1].toLowerCase();
+    }catch{}
+    return fallbackExt || "";
+  }
+
+  function guessDownloadName(it){
+    const base =
+      it?.kind === "meme"
+        ? `meme_${it.subreddit || "reddit"}_${(it.title||"").slice(0,48)}_${it.id || ""}`
+        : it?.kind === "xpost"
+          ? `post_x_${(it.title||"").slice(0,56)}`
+          : `media_${(it?.text||it?.title||"").slice(0,56)}`;
+
+    const isVid = (it?.mediaType === "video");
+    const ext = extFromUrl(it?.mediaUrl || "", isVid ? ".mp4" : ".jpg");
+    return sanitizeFilename(base) + ext;
+  }
+
+  async function fetchBlob(url, timeoutMs=25000){
+    const { ac, done } = mkAbort(timeoutMs);
+    try{
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        mode: "cors",
+        signal: ac.signal,
+        headers: { "accept": "*/*" }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      if (!blob || !blob.size) throw new Error("blob_vacío");
+      return blob;
+    }finally{
+      done();
+    }
+  }
+
+  function clickDownload(url, filename){
+    try{
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "download";
+      a.rel = "noreferrer";
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  async function downloadViaBlob(url, filename){
+    const blob = await fetchBlob(url, 28000);
+    const objUrl = URL.createObjectURL(blob);
+    try{
+      clickDownload(objUrl, filename);
+      return true;
+    }finally{
+      setTimeout(() => { try{ URL.revokeObjectURL(objUrl); }catch{} }, 3500);
+    }
+  }
+
+  async function downloadMediaSmart(it){
+    const url = safeUrl(it?.mediaUrl || "");
+    if (!url){
+      toast("No hay URL de media para descargar.", "warn");
+      return;
+    }
+
+    const filename = guessDownloadName(it);
+
+    // 1) Intento directo (mejor calidad / sin intermediarios)
+    try{
+      toast("Preparando descarga…", "info", 1200);
+      await downloadViaBlob(url, filename);
+      toast("Descarga iniciada ✅", "ok");
+      return;
+    }catch(err1){
+      // 2) Fallback: proxies (pueden fallar con vídeos grandes, pero a veces salvan CORS)
+      const proxies = proxyUrlsFor(url);
+      for (const p of proxies){
+        if (p === url) continue;
+        try{
+          await downloadViaBlob(p, filename);
+          toast("Descarga iniciada ✅", "ok");
+          return;
+        }catch{}
+      }
+      // 3) Último fallback: abrir media para “Guardar como…”
+      toast("Tu navegador bloquea la descarga directa (CORS). Abro el archivo para guardarlo manualmente.", "warn", 3200);
+      openInNew(url);
+      // Intento adicional: enlace con download (a veces funciona según el host)
+      try{ clickDownload(url, filename); }catch{}
+    }
+  }
+
   /* ───────────────────────────── Memes (Reddit) ───────────────────────────── */
-  // Incluye tu subreddit + memes en español (además del mix global).
   const REDDIT_SUBS_MIX = [
     "OJOOJITOOJETE",
     "memesESP",
@@ -332,7 +498,6 @@
     if (!raw) return "mix";
     if (raw === "mix") return "mix";
 
-    // Permite valores tipo "r/xxxx" o URL completa
     if (/^r\//i.test(raw)) return raw.slice(2);
     if (/^https?:\/\//i.test(raw)){
       try{
@@ -456,7 +621,6 @@
     const source = parseSourceValue(el.selSource?.value || "mix");
 
     const subs = (source === "mix") ? REDDIT_SUBS_MIX : [source];
-
     const perSubLimit = clamp(Math.ceil(limit * (source === "mix" ? 1.35 : 2.0)), 25, 100);
 
     const reqs = subs.map(sub => {
@@ -507,7 +671,6 @@
     }
 
     out = out.slice(0, limit);
-
     return { items: out, errs };
   }
 
@@ -630,7 +793,6 @@
     });
 
     const url = `${GDELT_DOC}?${params.toString()}`;
-
     const json = await tryUrlsJson(proxyUrlsFor(url), 16000);
 
     const articles = Array.isArray(json?.articles) ? json.articles : [];
@@ -703,12 +865,6 @@
     return String(text || "").toLowerCase().includes(q);
   }
 
-  function openInNew(url){
-    const u = safeUrl(url);
-    if (!u) return;
-    try{ window.open(u, "_blank", "noreferrer"); }catch{}
-  }
-
   /* ───────────────────────────── Render ───────────────────────────── */
   function render(){
     showErr("");
@@ -737,6 +893,15 @@
     list.appendChild(frag);
   }
 
+  function makeIconBtn(title, msrIcon, extraClass=""){
+    const b = document.createElement("button");
+    b.className = "iconBtn" + (extraClass ? ` ${extraClass}` : "");
+    b.type = "button";
+    b.title = title || "";
+    b.innerHTML = `<span class="msr">${msrIcon}</span>`;
+    return b;
+  }
+
   function renderMemeCard(it){
     const card = document.createElement("article");
     card.className = "mCard";
@@ -748,22 +913,14 @@
     const votesCol = document.createElement("div");
     votesCol.className = "mVotes";
 
-    const btnUp = document.createElement("button");
-    btnUp.className = "iconBtn voteBtn up" + (v === 1 ? " isOn" : "");
-    btnUp.type = "button";
-    btnUp.title = "Upvote";
-    btnUp.innerHTML = `<span class="msr">arrow_upward</span>`;
+    const btnUp = makeIconBtn("Upvote", "arrow_upward", "voteBtn up" + (v === 1 ? " isOn" : ""));
     onDyn(btnUp, "click", (e) => { e.stopPropagation(); setVote(it.id, v === 1 ? 0 : 1); });
 
     const score = document.createElement("div");
     score.className = "voteScore";
     score.textContent = v === 0 ? "·" : (v === 1 ? "+1" : "-1");
 
-    const btnDown = document.createElement("button");
-    btnDown.className = "iconBtn voteBtn down" + (v === -1 ? " isOn" : "");
-    btnDown.type = "button";
-    btnDown.title = "Downvote";
-    btnDown.innerHTML = `<span class="msr">arrow_downward</span>`;
+    const btnDown = makeIconBtn("Downvote", "arrow_downward", "voteBtn down" + (v === -1 ? " isOn" : ""));
     onDyn(btnDown, "click", (e) => { e.stopPropagation(); setVote(it.id, v === -1 ? 0 : -1); });
 
     votesCol.appendChild(btnUp);
@@ -802,6 +959,8 @@
       vid.playsInline = true;
       vid.preload = "metadata";
       vid.muted = true;
+      // Evita que clic dentro del reproductor te abra el post
+      onDyn(vid, "click", (e) => e.stopPropagation());
 
       const fallback = document.createElement("div");
       fallback.className = "mMediaFail hidden";
@@ -823,6 +982,8 @@
       img.loading = "lazy";
       img.decoding = "async";
       img.alt = it.title || "meme";
+      // Evita que clic en imagen te abra el post
+      onDyn(img, "click", (e) => e.stopPropagation());
 
       const fallback = document.createElement("div");
       fallback.className = "mMediaFail hidden";
@@ -862,13 +1023,23 @@
     const actions = document.createElement("div");
     actions.className = "actionsInline";
 
-    const favBtn = document.createElement("button");
-    favBtn.className = "iconBtn" + (isFav ? " isOn" : "");
-    favBtn.type = "button";
-    favBtn.title = isFav ? "Quitar favorito" : "Favorito";
-    favBtn.innerHTML = `<span class="msr">star</span>`;
+    const downloadBtn = makeIconBtn("Descargar media", "download");
+    onDyn(downloadBtn, "click", async (e) => {
+      e.stopPropagation();
+      downloadBtn.disabled = true;
+      downloadBtn.classList.add("isLoading");
+      try{
+        await downloadMediaSmart(it);
+      }finally{
+        downloadBtn.disabled = false;
+        downloadBtn.classList.remove("isLoading");
+      }
+    });
+
+    const favBtn = makeIconBtn(isFav ? "Quitar favorito" : "Favorito", "star", isFav ? "isOn" : "");
     onDyn(favBtn, "click", (e) => { e.stopPropagation(); toggleFav(it); });
 
+    actions.appendChild(downloadBtn);
     actions.appendChild(favBtn);
 
     foot.appendChild(chips);
@@ -1093,7 +1264,7 @@
     if (ui.ticker) renderTicker();
   }
 
-  /* ───────────────────────────── X Timeline + Fallback RSS ───────────────────────────── */
+  /* ───────────────────────────── X Timeline + Fallback RSS (+ media) ───────────────────────────── */
   function twitterScriptAlreadyPresent(){
     return !!$$('script[src*="platform.twitter.com/widgets.js"]').length;
   }
@@ -1132,6 +1303,215 @@
     return u || "GlobalEye_TV";
   }
 
+  function tryExtractMediaFromHtml(html, baseUrl=""){
+    try{
+      const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
+      // Imagen
+      const img = doc.querySelector("img");
+      if (img?.getAttribute("src")){
+        let src = img.getAttribute("src");
+        try{
+          src = new URL(src, baseUrl || location.href).toString();
+        }catch{}
+        return { type: "image", url: normalizeMediaUrl(src) };
+      }
+      // Video (si viene como <video><source src=...>)
+      const source = doc.querySelector("video source[src], source[src$='.mp4'], a[href$='.mp4']");
+      if (source){
+        const href = source.getAttribute("src") || source.getAttribute("href");
+        if (href){
+          let u = href;
+          try{ u = new URL(href, baseUrl || location.href).toString(); }catch{}
+          return { type: "video", url: normalizeMediaUrl(u) };
+        }
+      }
+    }catch{}
+    return null;
+  }
+
+  function parseRssItems(xmlText, baseUrl=""){
+    const items = [];
+    try{
+      const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+      const rssItems = Array.from(doc.querySelectorAll("item")).slice(0, 10);
+      for (const it of rssItems){
+        const title = it.querySelector("title")?.textContent || "";
+        const link = it.querySelector("link")?.textContent || "";
+        const date = it.querySelector("pubDate")?.textContent || "";
+        const desc = it.querySelector("description")?.textContent || "";
+
+        let media = null;
+
+        // <enclosure url="..." type="...">
+        const enc = it.querySelector("enclosure[url]");
+        if (enc){
+          const u = enc.getAttribute("url") || "";
+          const t = enc.getAttribute("type") || "";
+          if (u){
+            media = {
+              type: /video/i.test(t) ? "video" : "image",
+              url: normalizeMediaUrl(u)
+            };
+          }
+        }
+
+        if (!media && desc){
+          media = tryExtractMediaFromHtml(desc, baseUrl);
+        }
+
+        items.push({
+          kind: "xpost",
+          id: `xpost:${link || title || Math.random().toString(16).slice(2)}`,
+          title,
+          link,
+          date,
+          mediaType: media?.type || "",
+          mediaUrl: media?.url || ""
+        });
+      }
+
+      if (!items.length){
+        // Atom
+        const entries = Array.from(doc.querySelectorAll("entry")).slice(0, 10);
+        for (const e of entries){
+          const title = e.querySelector("title")?.textContent || "";
+          const link = e.querySelector("link")?.getAttribute("href") || "";
+          const date = e.querySelector("updated")?.textContent || e.querySelector("published")?.textContent || "";
+          const content = e.querySelector("content")?.textContent || e.querySelector("summary")?.textContent || "";
+          const media = content ? tryExtractMediaFromHtml(content, baseUrl) : null;
+
+          items.push({
+            kind: "xpost",
+            id: `xpost:${link || title || Math.random().toString(16).slice(2)}`,
+            title,
+            link,
+            date,
+            mediaType: media?.type || "",
+            mediaUrl: media?.url || ""
+          });
+        }
+      }
+    }catch{}
+    return items;
+  }
+
+  function renderXFallback(user, items){
+    if (!el.xFallback) return;
+    const box = document.createElement("div");
+    box.className = "xFallbackBox";
+
+    const title = document.createElement("div");
+    title.className = "xFallbackTitle";
+    title.textContent = "Feed alternativo (RSS)";
+
+    const msg = document.createElement("div");
+    msg.className = "xFallbackMsg";
+    msg.textContent = "Si el embed de X está bloqueado, aquí tienes un resumen reciente.";
+
+    const actions = document.createElement("div");
+    actions.className = "xFallbackActions";
+
+    const userUrl = `https://x.com/${user}`;
+    actions.innerHTML = `
+      <a class="btn" href="${escapeHtml(userUrl)}" target="_blank" rel="noreferrer">
+        <span class="msr">open_in_new</span><span>Abrir @${escapeHtml(user)}</span>
+      </a>
+    `;
+
+    const list = document.createElement("div");
+    list.className = "xFallbackList";
+
+    if (!items?.length){
+      const empty = document.createElement("div");
+      empty.className = "xFallbackMsg muted";
+      empty.textContent = "No se pudieron extraer items del RSS.";
+      list.appendChild(empty);
+    }else{
+      for (const p of items.slice(0, 8)){
+        const card = document.createElement("div");
+        card.className = "xPost";
+
+        const t = document.createElement("div");
+        t.className = "xPostTitle";
+        t.textContent = (p.title || "").slice(0, 170) || "Post";
+
+        const a = document.createElement("div");
+        a.className = "xPostActions";
+
+        const openBtn = document.createElement("a");
+        openBtn.className = "btn ghost";
+        openBtn.href = p.link || userUrl;
+        openBtn.target = "_blank";
+        openBtn.rel = "noreferrer";
+        openBtn.innerHTML = `<span class="msr">open_in_new</span><span>Abrir</span>`;
+
+        const dlBtn = document.createElement("button");
+        dlBtn.className = "btn ghost";
+        dlBtn.type = "button";
+        dlBtn.innerHTML = `<span class="msr">download</span><span>Descargar</span>`;
+        dlBtn.disabled = !p.mediaUrl;
+
+        onDyn(dlBtn, "click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!p.mediaUrl){
+            toast("Este item no trae media en el RSS.", "warn");
+            return;
+          }
+          dlBtn.disabled = true;
+          try{
+            await downloadMediaSmart(p);
+          }finally{
+            dlBtn.disabled = false;
+          }
+        });
+
+        a.appendChild(openBtn);
+        a.appendChild(dlBtn);
+
+        card.appendChild(t);
+
+        if (p.mediaUrl){
+          const m = document.createElement("div");
+          m.className = "xPostMedia";
+          if (p.mediaType === "video"){
+            const v = document.createElement("video");
+            v.src = p.mediaUrl;
+            v.controls = true;
+            v.playsInline = true;
+            v.preload = "metadata";
+            v.muted = true;
+            onDyn(v, "click", (e) => e.stopPropagation());
+            m.appendChild(v);
+          }else{
+            const img = document.createElement("img");
+            img.src = p.mediaUrl;
+            img.loading = "lazy";
+            img.decoding = "async";
+            img.alt = p.title || "post";
+            onDyn(img, "click", (e) => e.stopPropagation());
+            m.appendChild(img);
+          }
+          card.appendChild(m);
+        }
+
+        card.appendChild(a);
+
+        onDyn(card, "click", () => openInNew(p.link || userUrl));
+
+        list.appendChild(card);
+      }
+    }
+
+    box.appendChild(title);
+    box.appendChild(msg);
+    box.appendChild(actions);
+    box.appendChild(list);
+
+    el.xFallback.innerHTML = "";
+    el.xFallback.appendChild(box);
+  }
+
   async function loadXFallbackFeed(){
     if (!el.xFallback) return;
     const user = getXUser();
@@ -1149,7 +1529,7 @@
     }
 
     let xmlText = "";
-    let lastErr = null;
+    let baseUsed = "";
 
     for (const u of urls){
       try{
@@ -1158,10 +1538,9 @@
         if (!t) throw new Error("vacío");
         if (!t.includes("<rss") && !t.includes("<feed")) throw new Error("no-rss");
         xmlText = t;
+        baseUsed = u;
         break;
-      }catch(err){
-        lastErr = err;
-      }
+      }catch{}
     }
 
     if (!xmlText){
@@ -1179,54 +1558,8 @@
       return;
     }
 
-    let items = [];
-    try{
-      const doc = new DOMParser().parseFromString(xmlText, "text/xml");
-      const rssItems = Array.from(doc.querySelectorAll("item")).slice(0, 8);
-      items = rssItems.map(it => ({
-        title: it.querySelector("title")?.textContent || "",
-        link: it.querySelector("link")?.textContent || "",
-        date: it.querySelector("pubDate")?.textContent || ""
-      })).filter(x => x.title || x.link);
-      if (!items.length){
-        // Atom
-        const entries = Array.from(doc.querySelectorAll("entry")).slice(0, 8);
-        items = entries.map(e => ({
-          title: e.querySelector("title")?.textContent || "",
-          link: e.querySelector("link")?.getAttribute("href") || "",
-          date: e.querySelector("updated")?.textContent || e.querySelector("published")?.textContent || ""
-        })).filter(x => x.title || x.link);
-      }
-    }catch{
-      items = [];
-    }
-
-    const userUrl = `https://x.com/${user}`;
-
-    el.xFallback.innerHTML = `
-      <div class="xFallbackBox">
-        <div class="xFallbackTitle">Feed alternativo (RSS)</div>
-        <div class="xFallbackMsg">Si el embed de X está bloqueado, aquí tienes un resumen reciente.</div>
-        <div class="xFallbackActions">
-          <a class="btn" href="${escapeHtml(userUrl)}" target="_blank" rel="noreferrer">
-            <span class="msr">open_in_new</span><span>Abrir @${escapeHtml(user)}</span>
-          </a>
-        </div>
-        ${
-          items.length
-            ? `<ul class="xFallbackList">
-                ${items.map(x => `
-                  <li>
-                    <a href="${escapeHtml(x.link || userUrl)}" target="_blank" rel="noreferrer">
-                      ${escapeHtml(x.title).slice(0, 140)}
-                    </a>
-                  </li>
-                `).join("")}
-              </ul>`
-            : `<div class="xFallbackMsg muted">No se pudieron extraer items del RSS.</div>`
-        }
-      </div>
-    `;
+    const items = parseRssItems(xmlText, baseUsed);
+    renderXFallback(user, items);
   }
 
   async function mountXTimeline(){
@@ -1444,7 +1777,7 @@
     }catch{}
   }
 
-  /* ───────────────────────────── Splash (opcional, no rompe si no existe) ───────────────────────────── */
+  /* ───────────────────────────── Splash (opcional) ───────────────────────────── */
   function handleOptionalSplashMinMs(minMs=5000){
     const splash = pickFirst("#splash", "#bootSplash", "#loadingSplash");
     if (!splash) return { done: () => {} };
@@ -1459,7 +1792,6 @@
       try{ splash.setAttribute("aria-hidden","true"); }catch{}
     }
 
-    // Nunca antes del mínimo
     const t = setTimeoutSafe(() => hide(), minMs);
 
     return {
