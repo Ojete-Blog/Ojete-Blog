@@ -1,16 +1,19 @@
 {
-  "name": "GlobalEye Trends — Memes & Tendencias",
-  "short_name": "GlobalEye",
-  "description": "Memes tipo Reddit (solo con imagen/vídeo), tendencias calculadas (open data) y feed embebido de @GlobalEye_TV.",
-  "lang": "es",
-  "start_url": "./",
+  "name": "OjoOjitoOjete BLOG",
+  "short_name": "OOO BLOG",
+  "id": "./",
+  "start_url": "./?source=pwa&view=memes",
   "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
   "background_color": "#000000",
   "theme_color": "#000000",
-  "orientation": "portrait",
+  "description": "GlobalEye Trends — Memes tipo Reddit (solo imagen/vídeo) + tendencias (open data) + timeline embebido de X (@GlobalEye_TV).",
   "categories": ["news", "entertainment", "social"],
+  "lang": "es-ES",
+  "dir": "ltr",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "./logo_ojo_favicon.png",
@@ -23,12 +26,32 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Memes",
+      "short_name": "Memes",
+      "url": "./?source=pwa&view=memes",
+      "icons": [{ "src": "./logo_ojo_favicon.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "src": "./logo_ojo_png.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "name": "Tendencias",
+      "short_name": "Trends",
+      "url": "./?source=pwa&view=trends",
+      "icons": [{ "src": "./logo_ojo_favicon.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Favoritos",
+      "short_name": "Favs",
+      "url": "./?source=pwa&view=favs",
+      "icons": [{ "src": "./logo_ojo_favicon.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "@GlobalEye_TV",
+      "short_name": "X",
+      "url": "https://x.com/GlobalEye_TV",
+      "icons": [{ "src": "./logo_ojo_favicon.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
 }

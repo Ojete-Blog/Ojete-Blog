@@ -1,218 +1,174 @@
 <!doctype html>
-<html lang="es" data-theme="dark">
+<html lang="es" data-theme="black">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#000000" />
-  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit + tendencias + feed embebido de X." />
+  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit + tendencias + timeline embebido de X." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <meta name="robots" content="noindex,nofollow" />
 
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./logo_ojo_favicon.png" sizes="32x32" />
-  <link rel="icon" href="./logo_ojo_favicon.png" sizes="192x192" />
-  <link rel="apple-touch-icon" href="./logo_ojo_favicon.png" sizes="180x180" />
+  <link rel="icon" href="./logo_ojo_favicon.png" />
+  <link rel="apple-touch-icon" href="./logo_ojo_favicon.png" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,500,0,0&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0,0&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="./styles.css" />
-  <script src="./app.js" defer></script>
+  <script defer src="./app.js"></script>
+
+  <title>GlobalEye — Memes & Trends</title>
 </head>
 
 <body>
-  <header class="topbar" role="banner">
-    <div class="topBg" aria-hidden="true">
-      <img class="topBgImg" src="./banner_ojo.jpg" alt="" />
-      <div class="topBgShade"></div>
+  <header class="topbar" role="banner" aria-label="GlobalEye">
+    <div class="topbarBanner" aria-hidden="true">
+      <img class="topbarBannerImg" src="./banner_ojo.jpg" alt="" decoding="async" fetchpriority="high" />
+      <div class="topbarBannerShade"></div>
     </div>
 
-    <div class="topInner">
+    <div class="topbarInner">
       <div class="brand">
         <img class="brandLogo" src="./logo_ojo_png.png" alt="GlobalEye" />
-        <div class="brandTxt">
-          <div class="brandTitle">GlobalEye Trends</div>
-          <div class="brandSub">Memes tipo Reddit · Tendencias · Feed X</div>
+        <div class="brandText">
+          <div class="brandTitle">GLOBAL EYE</div>
+          <div class="brandSub">Memes (48h) · Tendencias · X timeline</div>
         </div>
       </div>
 
-      <div class="topMeta" aria-label="Estado">
-        <div class="pill" title="Estado de red">
-          <span class="ms" aria-hidden="true">wifi</span>
-          <span id="netStatus">OK</span>
-        </div>
-        <div class="pill" title="Última actualización">
-          <span class="ms" aria-hidden="true">schedule</span>
-          <span id="lastUpdated">—</span>
-        </div>
-      </div>
-
-      <div class="topActions" aria-label="Acciones">
-        <button id="btnRefresh" class="btn pri" type="button" title="Actualizar (memes/tendencias)">
-          <span class="ms" aria-hidden="true">refresh</span>
-          <span class="btnLbl">Actualizar</span>
+      <nav class="tabs" aria-label="Vistas">
+        <button id="tabMemes" class="tab isActive" type="button">
+          <span class="msr">collections</span><span>Memes</span>
         </button>
-
-        <button id="btnCompact" class="btn" type="button" title="Modo compacto">
-          <span class="ms" aria-hidden="true">density_small</span>
-          <span class="btnLbl">Compacto</span>
+        <button id="tabTrends" class="tab" type="button">
+          <span class="msr">trending_up</span><span>Tendencias</span>
         </button>
-
-        <button id="btnTicker" class="btn" type="button" title="Ticker inferior (OBS)">
-          <span class="ms" aria-hidden="true">view_carousel</span>
-          <span class="btnLbl">Ticker</span>
+        <button id="tabFavs" class="tab" type="button">
+          <span class="msr">star</span><span>Favoritos</span>
         </button>
+      </nav>
 
-        <button id="btnConfig" class="btn" type="button" title="Configuración">
-          <span class="ms" aria-hidden="true">settings</span>
-          <span class="btnLbl">Config</span>
-        </button>
-
-        <a class="btn link" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer" title="Abrir @GlobalEye_TV en X">
-          <span class="ms" aria-hidden="true">open_in_new</span>
-          <span class="btnLbl">@GlobalEye_TV</span>
+      <div class="topActions">
+        <a class="btn ghost" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+          <span class="msr">open_in_new</span><span>@GlobalEye_TV</span>
         </a>
+
+        <button id="btnReloadX" class="btn ghost" type="button" title="Recargar timeline de X">
+          <span class="msr">refresh</span><span>Feed</span>
+        </button>
+
+        <button id="btnRefresh" class="btn" type="button" title="Actualizar datos">
+          <span class="msr">sync</span><span>Actualizar</span>
+        </button>
+
+        <button id="btnCompact" class="btn ghost" type="button" title="Modo compacto">
+          <span class="msr">density_small</span><span>Compacto</span>
+        </button>
+
+        <button id="btnTicker" class="btn ghost" type="button" title="Ticker inferior (OBS)">
+          <span class="msr">view_headline</span><span>Ticker</span>
+        </button>
+
+        <button id="btnConfig" class="btn ghost" type="button" title="Configuración">
+          <span class="msr">settings</span><span>Config</span>
+        </button>
+      </div>
+
+      <div class="statusBar" role="status" aria-label="Estado">
+        <span class="pill"><span class="msr">public</span><span id="netStatus">Online</span></span>
+        <span class="pill"><span class="msr">schedule</span><span id="lastUpdated">—</span></span>
       </div>
     </div>
   </header>
 
   <main class="layout" role="main">
-    <aside class="left" aria-label="Panel lateral">
-      <div class="panel">
-        <div class="panelHead">
-          <div class="panelTitle">
-            <span class="ms" aria-hidden="true">tune</span>
-            Controles
-          </div>
+    <section class="mainCol">
+      <div class="panelHead">
+        <div class="searchWrap">
+          <span class="msr">search</span>
+          <input id="q" class="search" type="search" placeholder="Buscar…" autocomplete="off" />
         </div>
 
-        <div class="panelBody">
-          <div class="hint">
-            <div class="hintTitle">Modo</div>
-            <div class="hintText">MEMES = solo posts con imagen/vídeo. Puedes votar y ordenar por “Best (tus votos)”.</div>
-          </div>
+        <div class="filters" aria-label="Filtros">
+          <select id="selSource" class="select" title="Fuente memes">
+            <option value="mix" selected>Mix</option>
+            <option value="memes">r/memes</option>
+            <option value="dankmemes">r/dankmemes</option>
+            <option value="meirl">r/me_irl</option>
+            <option value="wholesome">r/wholesomememes</option>
+            <option value="funny">r/funny</option>
+          </select>
 
-          <div class="quick">
-            <div class="quickRow">
-              <span class="ms" aria-hidden="true">bolt</span>
-              <div class="quickTxt">Auto-refresh configurable</div>
-            </div>
-            <div class="quickRow">
-              <span class="ms" aria-hidden="true">star</span>
-              <div class="quickTxt">Favoritos (memes y tendencias)</div>
-            </div>
-            <div class="quickRow">
-              <span class="ms" aria-hidden="true">smart_display</span>
-              <div class="quickTxt">Ticker inferior listo para OBS</div>
-            </div>
-          </div>
+          <select id="selSort" class="select" title="Orden">
+            <option value="new" selected>New</option>
+            <option value="hot">Hot</option>
+            <option value="top">Top</option>
+            <option value="best">Best (tus votos)</option>
+          </select>
+
+          <select id="selRange" class="select" title="Rango">
+            <option value="24">24h</option>
+            <option value="48" selected>48h</option>
+            <option value="72">72h</option>
+          </select>
         </div>
-
-        <div class="panelFoot slim"></div>
       </div>
-    </aside>
 
-    <section class="center" aria-label="Contenido principal">
-      <div class="panel">
-        <div class="panelHead">
-          <div class="searchWrap">
-            <span class="searchIco" aria-hidden="true"><span class="ms">search</span></span>
-            <input id="q" class="search" type="search" placeholder="Buscar memes…" autocomplete="off" />
-          </div>
+      <div id="errBanner" class="banner err hidden" role="alert"></div>
+      <div id="emptyBanner" class="banner empty hidden" role="status">No hay resultados con estos filtros.</div>
 
-          <div class="filters">
-            <div id="trendFilters" class="filtersGroup hidden">
-              <select id="selLang" class="select" title="Idioma (GDELT)">
-                <option value="spanish" selected>ES</option>
-                <option value="mixed">Mixto</option>
-                <option value="english">EN</option>
-              </select>
+      <section id="viewMemes" class="view">
+        <div id="memesList" class="list" aria-live="polite"></div>
+      </section>
 
-              <select id="selWindow" class="select" title="Ventana de tiempo">
-                <option value="2H">2H</option>
-                <option value="4H" selected>4H</option>
-                <option value="6H">6H</option>
-                <option value="12H">12H</option>
-              </select>
-
-              <select id="selGeo" class="select" title="Ámbito">
-                <option value="ES" selected>ES</option>
-                <option value="GLOBAL">GLOBAL</option>
-              </select>
-            </div>
-
-            <div id="memeFilters" class="filtersGroup">
-              <select id="selMemeSource" class="select" title="Fuente memes">
-                <option value="mix" selected>Mix</option>
-                <option value="memes">r/memes</option>
-                <option value="dankmemes">r/dankmemes</option>
-                <option value="meirl">r/me_irl</option>
-                <option value="wholesome">r/wholesomememes</option>
-                <option value="funny">r/funny</option>
-              </select>
-
-              <select id="selMemeSort" class="select" title="Orden memes">
-                <option value="new" selected>New</option>
-                <option value="hot">Hot</option>
-                <option value="top">Top</option>
-                <option value="best">Best (tus votos)</option>
-              </select>
-
-              <select id="selMemeRange" class="select" title="Rango memes">
-                <option value="24">24h</option>
-                <option value="48" selected>48h</option>
-                <option value="72">72h</option>
-              </select>
-            </div>
-          </div>
+      <section id="viewTrends" class="view hidden">
+        <div class="sectionTitle">
+          <span class="msr">trending_up</span>
+          <span>Tendencias (open data)</span>
+          <span class="muted">· abre búsqueda en X</span>
         </div>
+        <div id="trendsList" class="list trends" aria-live="polite"></div>
+      </section>
 
-        <div class="panelTabs">
-          <div id="tabsView" class="tabs" role="tablist" aria-label="Vista">
-            <button class="tab isActive" type="button" data-view="memes" aria-selected="true">MEMES</button>
-            <button class="tab" type="button" data-view="all" aria-selected="false">Tendencias</button>
-            <button class="tab" type="button" data-view="favs" aria-selected="false">Favoritos</button>
-          </div>
-
-          <div id="tabsCat" class="tabs hidden" role="tablist" aria-label="Categoría">
-            <button class="tab isActive" type="button" data-cat="all" aria-selected="true">Todo</button>
-            <button class="tab" type="button" data-cat="news" aria-selected="false">Noticias</button>
-            <button class="tab" type="button" data-cat="viral" aria-selected="false">Viral</button>
-            <button class="tab" type="button" data-cat="politics" aria-selected="false">Política</button>
-            <button class="tab" type="button" data-cat="sports" aria-selected="false">Deportes</button>
-          </div>
+      <section id="viewFavs" class="view hidden">
+        <div class="sectionTitle">
+          <span class="msr">star</span>
+          <span>Favoritos</span>
         </div>
-
-        <div id="err" class="err hidden" role="alert"></div>
-        <div id="empty" class="empty hidden">No hay resultados con estos filtros.</div>
-        <div id="list" class="list" aria-live="polite"></div>
-
-        <div class="panelFoot slim"></div>
-      </div>
+        <div id="favsList" class="list" aria-live="polite"></div>
+      </section>
     </section>
 
-    <aside class="right" aria-label="Feed X">
-      <div class="panel">
-        <div class="panelHead slim">
-          <div class="panelTitle">
-            <span class="ms" aria-hidden="true">alternate_email</span>
-            Tu feed (X)
-          </div>
-
-          <div class="headActions">
-            <button id="btnReloadX" class="iconBtn" type="button" title="Recargar feed">
-              <span class="ms" aria-hidden="true">refresh</span>
-            </button>
-            <a class="iconBtn" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer" title="Abrir en X">
-              <span class="ms" aria-hidden="true">open_in_new</span>
-            </a>
-          </div>
+    <aside class="sideCol">
+      <div class="card">
+        <div class="cardTitle">
+          <span class="msr">for_you</span><span>Timeline X</span>
         </div>
 
-        <div class="timelineWrap">
-          <div id="timelineMount" class="timelineMount" aria-label="Timeline embebido"></div>
+        <div id="xTimelineMount" class="xMount">
+          <!-- app.js monta aquí el widget -->
+        </div>
+
+        <div id="xFallback" class="xFallback hidden">
+          <div class="xFallbackText">
+            El widget puede estar bloqueado por privacidad/adblock.
+          </div>
+          <a class="btn" href="https://x.com/GlobalEye_TV" target="_blank" rel="noreferrer">
+            <span class="msr">open_in_new</span><span>Abrir perfil</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cardTitle">
+          <span class="msr">info</span><span>Notas</span>
+        </div>
+        <div class="hint">
+          Memes: solo posts con imagen/vídeo (sin NSFW).<br />
+          Tendencias: calculadas desde titulares (GDELT).<br />
+          Votos: se guardan localmente (tu navegador).
         </div>
       </div>
     </aside>
@@ -220,24 +176,19 @@
 
   <div id="tickerBar" class="ticker hidden" aria-label="Ticker">
     <div class="tickerInner">
-      <img class="tickerLogo" src="./logo_ojo_png.png" alt="Logo" />
-      <div class="tickerViewport" aria-label="Contenido ticker">
-        <div id="tickerTrack" class="tickerTrack"></div>
-      </div>
-      <button id="tickerClose" class="iconBtn" type="button" title="Cerrar ticker">
-        <span class="ms" aria-hidden="true">close</span>
-      </button>
+      <span class="msr">view_headline</span>
+      <div id="tickerTrack" class="tickerTrack"></div>
     </div>
   </div>
-
-  <div id="toastHost" class="toasts" aria-live="polite" aria-relevant="additions"></div>
 
   <div id="cfgModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Configuración">
     <div class="modalCard">
       <div class="modalHead">
-        <div class="modalTitle">Configuración</div>
+        <div class="modalTitle">
+          <span class="msr">settings</span><span>Configuración</span>
+        </div>
         <button id="cfgClose" class="iconBtn" type="button" aria-label="Cerrar">
-          <span class="ms" aria-hidden="true">close</span>
+          <span class="msr">close</span>
         </button>
       </div>
 
@@ -253,42 +204,24 @@
         </label>
 
         <label class="row">
-          <span>Máx tendencias</span>
-          <input id="cfgMaxTrends" class="input" type="number" min="10" max="80" value="35" />
-        </label>
-
-        <label class="row">
-          <span>Alertas</span>
-          <input id="cfgAlerts" type="checkbox" checked />
-        </label>
-
-        <label class="row">
-          <span>Ticker</span>
-          <input id="cfgTicker" type="checkbox" />
-        </label>
-
-        <label class="row">
-          <span>Velocidad ticker (seg)</span>
-          <input id="cfgTickerSpeed" class="input" type="number" min="12" max="120" value="28" />
-        </label>
-
-        <div class="sep"></div>
-
-        <label class="row">
-          <span>Máx memes (tarjetas)</span>
-          <input id="cfgMemeMaxPosts" class="input" type="number" min="10" max="120" value="45" />
+          <span>Máx memes</span>
+          <input id="cfgMaxPosts" class="input" type="number" min="10" max="120" value="45" />
         </label>
 
         <label class="row">
           <span>Ocultar media (solo títulos)</span>
           <input id="cfgNoThumbs" type="checkbox" />
         </label>
+
+        <label class="row">
+          <span>Velocidad ticker</span>
+          <input id="cfgTickerSpeed" class="input" type="number" min="30" max="300" value="120" />
+        </label>
       </div>
 
       <div class="modalFoot">
-        <button id="cfgSave" class="btn pri" type="button">
-          <span class="ms" aria-hidden="true">done</span>
-          Guardar
+        <button id="cfgSave" class="btn" type="button">
+          <span class="msr">check</span><span>Guardar</span>
         </button>
       </div>
     </div>
