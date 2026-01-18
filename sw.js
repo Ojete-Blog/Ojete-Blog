@@ -227,3 +227,23 @@ self.addEventListener("fetch", (event) => {
     return cached || (await fetcher) || fetch(req);
   })());
 });
+
+// Push Notifications
+self.addEventListener('push', function(event) {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || 'GlobalEye Notification';
+  const options = {
+    body: data.body || 'You have a new update!',
+    icon: './logo_ojo_favicon.png',
+    badge: './logo_ojo_favicon.png',
+    data: data
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  const url = event.notification.data?.url || './';
+  event.waitUntil(clients.openWindow(url));
+});
