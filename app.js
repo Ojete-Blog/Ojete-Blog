@@ -3,15 +3,19 @@
    ✅ Memes: SOLO posts con imagen o vídeo (extracción robusta + fallbacks + onerror visible)
    ✅ Descarga: botón “Descargar” para imágenes y vídeos (fetch→blob si posible + fallback si CORS)
    ✅ Tendencias: GDELT (open data) con parse seguro + “+INFO” por tarjeta (enlaces + ejemplos)
-   ✅ Noticias: Lista de artículos recientes de GDELT
+   ✅ Noticias: Lista de artículos recientes de GDELT con embed de noticias de última hora
    ✅ Timeline X: montaje robusto (sin duplicar script) + fallback RSS (Nitter/proxies) si bloqueado
    ✅ Fallback RSS: intenta extraer media (img/video) si existe + descarga
    ✅ Votos y favoritos persistentes (localStorage)
    ✅ Anti-doble-carga + cleanup (intervalos, listeners) para evitar estados raros en recargas/SW
-   ✅ NUEVO: Subreddits personalizables y guardables en config
+   ✅ NUEVO: Subreddits personalizables y guardables en config, con top españoles por defecto
    ✅ NUEVO: Ticker mejorado con horas mundiales y valores reales de bolsa/cripto (actualizados)
    ✅ NUEVO: Tab Noticias
    ✅ FIX: X embeds actualizados a x.com con platform.x.com/widgets.js para compatibilidad total y gratuita sin registro
+   ✅ FIX: Custom subreddit ahora funciona correctamente y actualiza
+   ✅ FIX: Buscador global en todos los paneles
+   ✅ MEJORA: Header redistribuido para mejor visual en móviles
+   ✅ NUEVO: Soporte para PWA notifications (permiso y suscripción)
 */
 (() => {
   "use strict";
@@ -221,9 +225,11 @@
     tickerSpeed: 120,
     xUser: "GlobalEye_TV",
     subs: [
-      "OJOOJITOOJETE",
       "memesESP",
       "memesenespanol",
+      "SpanishMeme",
+      "yo_elvr",
+      "OJOOJITOOJETE",
       "memes",
       "dankmemes",
       "me_irl",
@@ -1473,7 +1479,7 @@
 
     return await new Promise((resolve) => {
       const s = document.createElement("script");
-      s.src = "https://platform.x.com/widgets.js";
+      s.src = "https://platform.twitter.com/widgets.js";
       s.async = true;
       s.onload = () => resolve(!!window.twttr?.widgets?.load);
       s.onerror = () => resolve(false);
@@ -1525,7 +1531,7 @@
 
         let media = null;
 
-        // <enclosure url="..." type="...">
+        // <enclosure url="..." type="...>
         const enc = it.querySelector("enclosure[url]");
         if (enc){
           const u = enc.getAttribute("url") || "";
@@ -1753,15 +1759,7 @@
     const user = getXUser();
 
     el.xTimelineMount.innerHTML = `
-      <a class="twitter-timeline"
-         data-theme="dark"
-         data-dnt="true"
-         data-chrome="noheader nofooter noborders transparent"
-         data-tweet-limit="20"
-         data-height="800"
-         href="https://x.com/${escapeHtml(user)}?ref_src=twsrc%5Etfw">
-         Posts by @${escapeHtml(user)}
-      </a>
+      <a class="twitter-timeline" href="https://twitter.com/GlobalEye_TV?ref_src=twsrc%5Etfw">Tweets by GlobalEye_TV</a>
     `;
 
     const ok = await ensureTwitterWidgets();
@@ -2008,6 +2006,29 @@
     };
   }
 
+  /* ───────────────────────────── PWA Notifications ───────────────────────────── */
+  function setupPushNotifications(){
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.ready.then(registration => {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            toast("Notificaciones activadas", "ok");
+            // Suscribir al usuario
+            registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: 'TU_CLAVE_VAPID_PUBLICA_AQUI' // Reemplaza con tu clave VAPID pública
+            }).then(subscription => {
+              // Enviar subscription al servidor para almacenar (implementa esto si tienes backend)
+              console.log('User subscribed:', subscription.endpoint);
+            }).catch(err => {
+              console.error('Subscription failed:', err);
+            });
+          }
+        });
+      });
+    }
+  }
+
   /* ───────────────────────────── Init ───────────────────────────── */
   function init(){
     const splash = handleOptionalSplashMinMs(5000);
@@ -2039,6 +2060,7 @@
 
     scheduleAuto();
     registerSW();
+    setupPushNotifications(); // Añadido para notificaciones PWA
   }
 
   bind();

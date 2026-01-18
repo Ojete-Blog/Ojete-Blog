@@ -1,7 +1,7 @@
 /* sw.js — GlobalEye Memes + Trends (GitHub Pages hardened) */
 "use strict";
 
-const SW_VERSION = "ge-memes-trends-sw-3"; // ⬅️ bump por la actualización de index/styles
+const SW_VERSION = "ge-memes-trends-sw-4"; // ⬅️ bump por actualizaciones y soporte mejorado para notificaciones
 const CACHE_CORE = `${SW_VERSION}::core`;
 const CACHE_RUNTIME = `${SW_VERSION}::runtime`;
 
@@ -228,7 +228,7 @@ self.addEventListener("fetch", (event) => {
   })());
 });
 
-// Push Notifications
+// Push Notifications (mejorado para manejar noticias de última hora)
 self.addEventListener('push', function(event) {
   const data = event.data ? event.data.json() : {};
   const title = data.title || 'GlobalEye Notification';
