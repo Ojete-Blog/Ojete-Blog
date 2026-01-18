@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#000000" />
-  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit + tendencias + timeline de X." />
+  <meta name="description" content="GlobalEye Trends — Memes tipo Reddit + tendencias + noticias + timeline de X." />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
 
   <meta property="og:title" content="GlobalEye — Memes & Trends" />
-  <meta property="og:description" content="Memes · Tendencias · X feed" />
+  <meta property="og:description" content="Memes · Tendencias · Noticias · X feed" />
   <meta property="og:image" content="./banner_ojo.jpg" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -56,7 +56,7 @@
         <img class="brandLogo" src="./logo_ojo_png.png" alt="GlobalEye" decoding="async" />
         <div class="brandText">
           <div class="brandTitle">GLOBAL EYE</div>
-          <div class="brandSub">Memes · Tendencias · X feed</div>
+          <div class="brandSub">Memes · Tendencias · Noticias · X feed</div>
         </div>
       </div>
 
@@ -66,6 +66,9 @@
         </button>
         <button id="tabTrends" class="tab" type="button">
           <span class="msr">trending_up</span><span class="lbl">Tendencias</span>
+        </button>
+        <button id="tabNews" class="tab" type="button">
+          <span class="msr">article</span><span class="lbl">Noticias</span>
         </button>
         <button id="tabFavs" class="tab" type="button">
           <span class="msr">star</span><span class="lbl">Favoritos</span>
@@ -164,6 +167,15 @@
         <div id="trendsList" class="list trends" aria-live="polite"></div>
       </section>
 
+      <section id="viewNews" class="view hidden">
+        <div class="sectionTitle">
+          <span class="msr">article</span>
+          <span>Noticias</span>
+          <span class="muted">· open data</span>
+        </div>
+        <div id="newsList" class="list" aria-live="polite"></div>
+      </section>
+
       <section id="viewFavs" class="view hidden">
         <div class="sectionTitle">
           <span class="msr">star</span>
@@ -203,6 +215,7 @@
         <div class="hint">
           Memes: solo posts con imagen/vídeo (sin NSFW).<br />
           Tendencias: calculadas desde titulares (GDELT) + ejemplos.<br />
+          Noticias: artículos recientes (GDELT).<br />
           Votos/Favs: se guardan localmente (tu navegador).<br />
           Descarga: (cuando esté activa) desde cada tarjeta.<br />
           X: widget oficial + fallback cuando esté bloqueado.
@@ -263,6 +276,11 @@
         <label class="row">
           <span>Velocidad ticker</span>
           <input id="cfgTickerSpeed" class="input" type="number" min="30" max="300" value="120" />
+        </label>
+
+        <label class="row">
+          <span>Subreddits (mix, coma separados)</span>
+          <input id="cfgSubs" class="input" type="text" value="OJOOJITOOJETE,memesESP,memesenespanol,memes,dankmemes,me_irl,wholesomememes,funny" />
         </label>
       </div>
 

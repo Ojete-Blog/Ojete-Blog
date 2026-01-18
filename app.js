@@ -1,18 +1,23 @@
-/* app.js — GlobalEye Memes + Trends + X timeline (FINAL+ DOWNLOADS)
-   ✅ Compatible con tu index.html actual (IDs: tabMemes/tabTrends/tabFavs, btnRefresh, xTimelineMount, memesList...)
+/* app.js — GlobalEye Memes + Trends + News + X timeline (UPDATED)
+   ✅ Compatible con tu index.html actual (IDs: tabMemes/tabTrends/tabNews/tabFavs, btnRefresh, xTimelineMount, memesList...)
    ✅ Memes: SOLO posts con imagen o vídeo (extracción robusta + fallbacks + onerror visible)
    ✅ Descarga: botón “Descargar” para imágenes y vídeos (fetch→blob si posible + fallback si CORS)
    ✅ Tendencias: GDELT (open data) con parse seguro + “+INFO” por tarjeta (enlaces + ejemplos)
+   ✅ Noticias: Lista de artículos recientes de GDELT
    ✅ Timeline X: montaje robusto (sin duplicar script) + fallback RSS (Nitter/proxies) si bloqueado
    ✅ Fallback RSS: intenta extraer media (img/video) si existe + descarga
    ✅ Votos y favoritos persistentes (localStorage)
    ✅ Anti-doble-carga + cleanup (intervalos, listeners) para evitar estados raros en recargas/SW
+   ✅ NUEVO: Subreddits personalizables y guardables en config
+   ✅ NUEVO: Ticker mejorado con horas mundiales y valores reales de bolsa/cripto (actualizados)
+   ✅ NUEVO: Tab Noticias
+   ✅ FIX: X embeds actualizados a x.com
 */
 (() => {
   "use strict";
 
-  const APP_VERSION = "ge-memes-trends-final";
-  const BUILD_ID = "2026-01-17d";
+  const APP_VERSION = "ge-memes-trends-news-final";
+  const BUILD_ID = "2026-01-18";
 
   /* ───────────────────────────── Guard + Cleanup ───────────────────────────── */
   const TAG = `${APP_VERSION}:${BUILD_ID}`;
@@ -193,6 +198,7 @@
   const LS_UI          = "ge_ui_v1";
   const LS_CACHE_MEMES = "ge_cache_memes_v1";
   const LS_CACHE_TR    = "ge_cache_trends_v1";
+  const LS_CACHE_NEWS  = "ge_cache_news_v1";
 
   function loadJSON(key, fallback){
     try{
@@ -214,6 +220,16 @@
     noThumbs: false,
     tickerSpeed: 120,
     xUser: "GlobalEye_TV",
+    subs: [
+      "OJOOJITOOJETE",
+      "memesESP",
+      "memesenespanol",
+      "memes",
+      "dankmemes",
+      "me_irl",
+      "wholesomememes",
+      "funny"
+    ]
   }, loadJSON(LS_CFG, {}));
 
   const votes = Object.assign({}, loadJSON(LS_VOTES, {})); // { [id]: -1|0|1 }
@@ -229,6 +245,7 @@
   const el = {
     tabMemes: $("#tabMemes"),
     tabTrends: $("#tabTrends"),
+    tabNews: $("#tabNews"),
     tabFavs: $("#tabFavs"),
 
     btnRefresh: $("#btnRefresh"),
@@ -250,10 +267,12 @@
 
     viewMemes: $("#viewMemes"),
     viewTrends: $("#viewTrends"),
+    viewNews: $("#viewNews"),
     viewFavs: $("#viewFavs"),
 
     memesList: $("#memesList"),
     trendsList: $("#trendsList"),
+    newsList: $("#newsList"),
     favsList: $("#favsList"),
 
     xTimelineMount: pickFirst("#xTimelineMount", "#timelineMount"),
@@ -270,16 +289,19 @@
     cfgEvery: $("#cfgEvery"),
     cfgMaxPosts: $("#cfgMaxPosts"),
     cfgNoThumbs: $("#cfgNoThumbs"),
-    cfgTickerSpeed: $("#cfgTickerSpeed")
+    cfgTickerSpeed: $("#cfgTickerSpeed"),
+    cfgSubs: $("#cfgSubs")
   };
 
   function softAssertBasics(){
     const missing = [];
     if (!el.memesList) missing.push("#memesList");
     if (!el.trendsList) missing.push("#trendsList");
+    if (!el.newsList) missing.push("#newsList");
     if (!el.favsList) missing.push("#favsList");
     if (!el.viewMemes) missing.push("#viewMemes");
     if (!el.viewTrends) missing.push("#viewTrends");
+    if (!el.viewNews) missing.push("#viewNews");
     if (!el.viewFavs) missing.push("#viewFavs");
     if (missing.length){
       showErr(`Faltan contenedores en HTML: ${missing.join(", ")} (revisa index.html).`);
@@ -482,17 +504,6 @@
   }
 
   /* ───────────────────────────── Memes (Reddit) ───────────────────────────── */
-  const REDDIT_SUBS_MIX = [
-    "OJOOJITOOJETE",
-    "memesESP",
-    "memesenespanol",
-    "memes",
-    "dankmemes",
-    "me_irl",
-    "wholesomememes",
-    "funny"
-  ];
-
   function parseSourceValue(v){
     const raw = String(v || "").trim();
     if (!raw) return "mix";
@@ -620,7 +631,7 @@
     const sort = (el.selSort?.value || "new");
     const source = parseSourceValue(el.selSource?.value || "mix");
 
-    const subs = (source === "mix") ? REDDIT_SUBS_MIX : [source];
+    const subs = (source === "mix") ? (cfg.subs || []) : [source];
     const perSubLimit = clamp(Math.ceil(limit * (source === "mix" ? 1.35 : 2.0)), 25, 100);
 
     const reqs = subs.map(sub => {
@@ -812,12 +823,80 @@
     return scoreTrendsFromTitles(titles);
   }
 
-  /* ───────────────────────────── State ───────────────────────────── */
+  /* ───────────────────────────── Noticias (GDELT) ───────────────────────────── */
+  async function fetchNews(){
+    const rangeH = Number(el.selRange?.value || 48);
+    const timespan = gdeltTimespanForHours(rangeH);
+    const query = buildGdeltQuery(); // Reutiliza la query de trends para noticias relevantes
+
+    const params = new URLSearchParams({
+      query,
+      mode: "artlist",
+      format: "json",
+      sort: "datedesc",
+      maxrecords: "80",
+      timespan
+    });
+
+    const url = `${GDELT_DOC}?${params.toString()}`;
+    const json = await tryUrlsJson(proxyUrlsFor(url), 16000);
+
+    const articles = Array.isArray(json?.articles) ? json.articles : [];
+    const cutoff = Date.now() - (rangeH * 3600 * 1000);
+
+    const items = articles
+      .filter(a => a && a.title && a.url && a.domain)
+      .filter(a => {
+        const dt = a.seendate || "";
+        const t = Date.parse(dt);
+        return Number.isFinite(t) && t >= cutoff;
+      })
+      .map(a => ({
+        kind: "news",
+        id: a.url,
+        title: String(a.title),
+        url: String(a.url),
+        source: String(a.domain),
+        dateMs: Date.parse(a.seendate)
+      }));
+
+    return items;
+  }
+
+  /* ───────────────────────────── Market Data ───────────────────────────── */
   const state = {
     memes: [],
     trends: [],
+    news: [],
+    market: { btc: 0, eth: 0, sp500: 0, last: 0 },
     lastRefreshMs: 0
   };
+
+  async function refreshMarket(force = false){
+    if (!force && Date.now() - state.market.last < 45000) return;
+    try{
+      const cgUrl = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd";
+      const cg = await fetchJsonSmart(proxyUrlsFor(cgUrl)[0], 8000); // Prefer direct
+      state.market.btc = cg?.bitcoin?.usd || 0;
+      state.market.eth = cg?.ethereum?.usd || 0;
+
+      const yUrl = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=^GSPC";
+      const y = await fetchJsonSmart(proxyUrlsFor(yUrl), 8000);
+      state.market.sp500 = y?.quoteResponse?.result?.[0]?.regularMarketPrice || 0;
+
+      state.market.last = Date.now();
+    }catch{}
+  }
+
+  function getWorldTimes(){
+    const zones = [
+      {label: "UTC", tz: "UTC"},
+      {label: "NY", tz: "America/New_York"},
+      {label: "MAD", tz: "Europe/Madrid"},
+      {label: "TOK", tz: "Asia/Tokyo"}
+    ];
+    return zones.map(z => `${z.label}: ${new Date().toLocaleTimeString('en-GB', {timeZone: z.tz, hour: '2-digit', minute: '2-digit'})}`).join(" | ");
+  }
 
   /* ───────────────────────────── UI helpers ───────────────────────────── */
   function showErr(msg){
@@ -849,10 +928,12 @@
 
     el.tabMemes?.classList.toggle("isActive", view === "memes");
     el.tabTrends?.classList.toggle("isActive", view === "trends");
+    el.tabNews?.classList.toggle("isActive", view === "news");
     el.tabFavs?.classList.toggle("isActive", view === "favs");
 
     setHidden(el.viewMemes, view !== "memes");
     setHidden(el.viewTrends, view !== "trends");
+    setHidden(el.viewNews, view !== "news");
     setHidden(el.viewFavs, view !== "favs");
 
     render();
@@ -872,6 +953,7 @@
 
     if (ui.view === "memes") renderMemes();
     else if (ui.view === "trends") renderTrends();
+    else if (ui.view === "news") renderNews();
     else renderFavs();
   }
 
@@ -1153,6 +1235,55 @@
     list.appendChild(frag);
   }
 
+  function renderNews(){
+    const list = el.newsList;
+    if (!list) return;
+    list.innerHTML = "";
+
+    const items = (state.news || []).filter(it => passesSearch(it.title));
+    if (!items.length){
+      showEmpty(true);
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const it of items){
+      const card = document.createElement("article");
+      card.className = "nCard";
+      card.dataset.id = it.id;
+
+      const isFav = !!favs[it.id];
+
+      card.innerHTML = `
+        <div class="nTitle">${escapeHtml(it.title)}</div>
+        <div class="nMeta">
+          <span>${escapeHtml(it.source)}</span>
+          <span class="mDot">•</span>
+          <span>${escapeHtml(formatAgoMs(Math.max(0, Date.now() - (it.dateMs||0))))}</span>
+        </div>
+        <div class="nActions">
+          <a class="iconBtn" href="${escapeHtml(it.url)}" target="_blank" rel="noreferrer" title="Abrir noticia">
+            <span class="msr">open_in_new</span>
+          </a>
+          <button class="iconBtn ${isFav ? "isOn" : ""}" type="button" title="${isFav ? "Quitar favorito" : "Favorito"}">
+            <span class="msr">star</span>
+          </button>
+        </div>
+      `;
+
+      const favBtn = card.querySelector("button.iconBtn");
+      onDyn(favBtn, "click", (e) => {
+        e.stopPropagation();
+        toggleFav(it);
+      });
+
+      onDyn(card, "click", () => openInNew(it.url));
+
+      frag.appendChild(card);
+    }
+    list.appendChild(frag);
+  }
+
   function renderFavs(){
     const list = el.favsList;
     if (!list) return;
@@ -1165,7 +1296,7 @@
       return;
     }
 
-    filtered.sort((a,b) => (b.createdMs||0) - (a.createdMs||0));
+    filtered.sort((a,b) => (b.createdMs||b.dateMs||0) - (a.createdMs||a.dateMs||0));
 
     const frag = document.createDocumentFragment();
     for (const it of filtered){
@@ -1203,6 +1334,40 @@
         });
 
         frag.appendChild(row);
+      }else if (it.kind === "news"){
+        const card = document.createElement("article");
+        card.className = "nCard";
+
+        card.innerHTML = `
+          <div class="nTitle">${escapeHtml(it.title)}</div>
+          <div class="nMeta">
+            <span>${escapeHtml(it.source)}</span>
+            <span class="mDot">•</span>
+            <span>${escapeHtml(formatAgoMs(Math.max(0, Date.now() - (it.dateMs||0))))}</span>
+          </div>
+          <div class="nActions">
+            <a class="iconBtn" href="${escapeHtml(it.url)}" target="_blank" rel="noreferrer" title="Abrir noticia">
+              <span class="msr">open_in_new</span>
+            </a>
+            <button class="iconBtn isOn" type="button" title="Quitar favorito" data-act="unfav">
+              <span class="msr">star</span>
+            </button>
+          </div>
+        `;
+
+        const btn = card.querySelector('[data-act="unfav"]');
+        onDyn(btn, "click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          delete favs[it.id];
+          saveJSON(LS_FAVS, favs);
+          renderFavs();
+          if (ui.ticker) renderTicker();
+        });
+
+        onDyn(card, "click", () => openInNew(it.url));
+
+        frag.appendChild(card);
       }else{
         frag.appendChild(renderMemeCard(it));
       }
@@ -1237,19 +1402,30 @@
   }
 
   /* ───────────────────────────── Ticker ───────────────────────────── */
-  function renderTicker(){
+  let marketTimer = null;
+
+  async function renderTicker(){
     const track = el.tickerTrack;
     if (!track) return;
     track.innerHTML = "";
 
+    await refreshMarket();
+
+    const timesStr = getWorldTimes();
+    const marketStr = `BTC: $${state.market.btc.toFixed(0)} | ETH: $${state.market.eth.toFixed(0)} | S&P500: ${state.market.sp500.toFixed(0)}`;
+
     let text = "";
     if (ui.view === "trends" && state.trends.length){
       text = state.trends.slice(0, 18).map(t => `• ${t.text}`).join("   ");
+    }else if (ui.view === "news" && state.news.length){
+      text = state.news.slice(0, 12).map(n => `• ${n.title.slice(0, 60)}`).join("   ");
     }else if (state.memes.length){
       text = state.memes.slice(0, 12).map(m => `• ${m.title}`).join("   ");
     }else{
       text = "• GlobalEye •";
     }
+
+    text = `${timesStr} | ${marketStr}   ${text}`;
 
     const run = document.createElement("div");
     run.className = "run";
@@ -1261,7 +1437,14 @@
     ui.ticker = !!on;
     saveJSON(LS_UI, ui);
     applyUIFlags();
-    if (ui.ticker) renderTicker();
+    clearTracked(marketTimer);
+    marketTimer = null;
+    if (ui.ticker){
+      renderTicker();
+      marketTimer = setIntervalSafe(() => {
+        refreshMarket(true).then(renderTicker);
+      }, 60000);
+    }
   }
 
   /* ───────────────────────────── X Timeline + Fallback RSS (+ media) ───────────────────────────── */
@@ -1576,7 +1759,7 @@
          data-chrome="noheader nofooter noborders transparent"
          data-tweet-limit="6"
          data-height="680"
-         href="https://twitter.com/${escapeHtml(user)}">
+         href="https://x.com/${escapeHtml(user)}">
          Tweets by @${escapeHtml(user)}
       </a>
     `;
@@ -1613,6 +1796,7 @@
     if (el.cfgMaxPosts) el.cfgMaxPosts.value = String(clamp(cfg.maxPosts || 45, 10, 120));
     if (el.cfgNoThumbs) el.cfgNoThumbs.checked = !!cfg.noThumbs;
     if (el.cfgTickerSpeed) el.cfgTickerSpeed.value = String(clamp(cfg.tickerSpeed || 120, 30, 300));
+    if (el.cfgSubs) el.cfgSubs.value = cfg.subs.join(", ");
     setHidden(el.cfgModal, false);
   }
   function closeCfg(){ setHidden(el.cfgModal, true); }
@@ -1622,6 +1806,9 @@
     cfg.maxPosts = clamp(el.cfgMaxPosts?.value || 45, 10, 120);
     cfg.noThumbs = !!el.cfgNoThumbs?.checked;
     cfg.tickerSpeed = clamp(el.cfgTickerSpeed?.value || 120, 30, 300);
+    if (el.cfgSubs){
+      cfg.subs = el.cfgSubs.value.split(/[,;]/).map(s => s.trim().replace(/^r\//,"")).filter(Boolean);
+    }
 
     saveJSON(LS_CFG, cfg);
     applyUIFlags();
@@ -1710,6 +1897,22 @@
         }
       }
 
+      try{
+        state.news = await fetchNews();
+        cacheSave(LS_CACHE_NEWS, state.news);
+      }catch(err){
+        const cached = cacheLoad(LS_CACHE_NEWS);
+        if (cached?.payload?.length){
+          state.news = cached.payload;
+          if (ui.view === "news"){
+            showErr(`Noticias: fallo de red, usando cache (${formatAgoMs(Date.now()-cached.ts)}).`);
+          }
+        }else{
+          if (ui.view === "news") showErr(`Noticias: ${err.message || err}`);
+          state.news = [];
+        }
+      }
+
       state.lastRefreshMs = Date.now();
       setLastUpdatedLabel();
       render();
@@ -1737,6 +1940,7 @@
 
     on(el.tabMemes, "click", () => setActiveTab("memes"));
     on(el.tabTrends, "click", () => setActiveTab("trends"));
+    on(el.tabNews, "click", () => setActiveTab("news"));
     on(el.tabFavs, "click", () => setActiveTab("favs"));
 
     on(el.btnRefresh, "click", () => refreshAll());
@@ -1821,6 +2025,9 @@
 
     const cachedT = cacheLoad(LS_CACHE_TR);
     if (cachedT?.payload?.length) state.trends = cachedT.payload;
+
+    const cachedN = cacheLoad(LS_CACHE_NEWS);
+    if (cachedN?.payload?.length) state.news = cachedN.payload;
 
     render();
 
