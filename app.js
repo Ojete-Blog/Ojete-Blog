@@ -11,7 +11,7 @@
    ✅ NUEVO: Subreddits personalizables y guardables en config
    ✅ NUEVO: Ticker mejorado con horas mundiales y valores reales de bolsa/cripto (actualizados)
    ✅ NUEVO: Tab Noticias
-   ✅ FIX: X embeds actualizados a x.com
+   ✅ FIX: X embeds actualizados a x.com con platform.x.com/widgets.js para compatibilidad total y gratuita sin registro
 */
 (() => {
   "use strict";
@@ -1449,7 +1449,7 @@
 
   /* ───────────────────────────── X Timeline + Fallback RSS (+ media) ───────────────────────────── */
   function twitterScriptAlreadyPresent(){
-    return !!$$('script[src*="platform.twitter.com/widgets.js"]').length;
+    return !!$$('script[src*="platform.x.com/widgets.js"]').length || !!$$('script[src*="platform.twitter.com/widgets.js"]').length;
   }
 
   function waitForTwttr(ms=3500){
@@ -1473,7 +1473,7 @@
 
     return await new Promise((resolve) => {
       const s = document.createElement("script");
-      s.src = "https://platform.twitter.com/widgets.js";
+      s.src = "https://platform.x.com/widgets.js";
       s.async = true;
       s.onload = () => resolve(!!window.twttr?.widgets?.load);
       s.onerror = () => resolve(false);
@@ -1516,7 +1516,7 @@
     const items = [];
     try{
       const doc = new DOMParser().parseFromString(xmlText, "text/xml");
-      const rssItems = Array.from(doc.querySelectorAll("item")).slice(0, 10);
+      const rssItems = Array.from(doc.querySelectorAll("item")).slice(0, 20); // Aumentado a 20 para más contenido
       for (const it of rssItems){
         const title = it.querySelector("title")?.textContent || "";
         const link = it.querySelector("link")?.textContent || "";
@@ -1555,7 +1555,7 @@
 
       if (!items.length){
         // Atom
-        const entries = Array.from(doc.querySelectorAll("entry")).slice(0, 10);
+        const entries = Array.from(doc.querySelectorAll("entry")).slice(0, 20); // Aumentado a 20
         for (const e of entries){
           const title = e.querySelector("title")?.textContent || "";
           const link = e.querySelector("link")?.getAttribute("href") || "";
@@ -1610,7 +1610,7 @@
       empty.textContent = "No se pudieron extraer items del RSS.";
       list.appendChild(empty);
     }else{
-      for (const p of items.slice(0, 8)){
+      for (const p of items.slice(0, 20)){ // Aumentado a 20 para más posts en fallback
         const card = document.createElement("div");
         card.className = "xPost";
 
@@ -1757,10 +1757,10 @@
          data-theme="dark"
          data-dnt="true"
          data-chrome="noheader nofooter noborders transparent"
-         data-tweet-limit="6"
-         data-height="680"
-         href="https://x.com/${escapeHtml(user)}">
-         Tweets by @${escapeHtml(user)}
+         data-tweet-limit="20"
+         data-height="800"
+         href="https://x.com/${escapeHtml(user)}?ref_src=twsrc%5Etfw">
+         Posts by @${escapeHtml(user)}
       </a>
     `;
 

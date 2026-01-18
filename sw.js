@@ -1,4 +1,4 @@
-/* sw.js — GlobalEye Memes+Trends (GitHub Pages hardened) */
+/* sw.js — GlobalEye Memes + Trends (GitHub Pages hardened) */
 "use strict";
 
 const SW_VERSION = "ge-memes-trends-sw-3"; // ⬅️ bump por la actualización de index/styles
